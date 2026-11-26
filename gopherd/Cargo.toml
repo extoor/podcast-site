@@ -1,0 +1,11 @@
+[package]
+name = "gopherd"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Read-only Gopher server for the generated menus, playlists and audio"
+
+[dependencies]
+anyhow = "1.0.105"
+tokio = { version = "1.54.1", default-features = false, features = ["rt-multi-thread", "net", "io-util", "time", "fs", "sync", "macros", "signal"] }

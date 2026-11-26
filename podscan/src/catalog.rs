@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Current `catalog.json` format version. Bump on incompatible changes.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Catalog {
@@ -14,19 +14,19 @@ pub struct Catalog {
     pub base_url: String,
     /// Playlist with all episodes: `playlists/all.m3u8`.
     pub all_playlist: String,
-    /// Podcasts (directories).
+    /// Folders (top-level directories of the media root).
+    pub folders: Vec<Folder>,
+    /// Podcasts (shows) sorted by name; the "no podcast" group comes last.
     pub podcasts: Vec<Podcast>,
-    /// Programs sorted by name; the "no program" group comes last.
-    pub programs: Vec<Program>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Program {
-    /// ASCII identifier: `[a-z0-9-]+`, unique among programs.
+pub struct Podcast {
+    /// ASCII identifier: `[a-z0-9-]+`, unique among podcasts.
     pub slug: String,
-    /// Program name; `None` for episodes without a program.
+    /// Podcast name; `None` for episodes without a podcast.
     pub name: Option<String>,
-    /// `playlists/program/<slug>.m3u8`.
+    /// `playlists/podcast/<slug>.m3u8`.
     pub playlist: String,
     pub total_duration_secs: u64,
     /// Episode paths (`Episode::path`) in playlist order.
@@ -34,7 +34,7 @@ pub struct Program {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Podcast {
+pub struct Folder {
     /// ASCII identifier: `[a-z0-9-]+`, unique within the catalog.
     pub slug: String,
     /// Display name (directory name).
@@ -55,11 +55,14 @@ pub struct Episode {
     /// Artist: from the TPE1 tag, otherwise (if there is no title tag) from the file name.
     pub artist: Option<String>,
     pub album: Option<String>,
-    /// Program after applying the `programs.toml` rules (see `podscan::programs`).
-    pub program: Option<String>,
+    /// Podcast after applying the `podcasts.toml` rules (see `podscan::podcasts`).
+    pub podcast: Option<String>,
     /// Duration: from the MPEG stream (Xing/VBRI frame count or CBR size), otherwise
     /// from the TLEN tag if plausible; `None` if unknown.
     pub duration_secs: Option<u64>,
+    /// Release date `YYYY-MM-DD` from the file name (see `podscan::filename::date`).
+    #[serde(default)]
+    pub date: Option<String>,
     /// MPEG stream info from the first frame; `None` if no frame was found.
     #[serde(default)]
     pub audio: Option<AudioInfo>,

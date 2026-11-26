@@ -29,8 +29,11 @@
    - пишет плейлисты M3U8 (UTF-8) со ссылками вида
      `https://<домен>/media/<путь-в-percent-encoding>`:
      `build/playlists/all.m3u8` (все эпизоды), `build/playlists/dir/<slug>.m3u8` (по папкам),
-     `build/playlists/program/<slug>.m3u8` (по программам/шоу, `bez-programmy.m3u8` — без программы);
-   - программа = тег альбома (TALB), исправленный правилами из `programs.toml` (варианты
+     `build/playlists/podcast/<slug>.m3u8` (по подкастам/шоу, `bez-podkasta.m3u8` — без подкаста);
+   - термины: **подкаст** (`Podcast`) — шоу, например Zebra; **папка** (`Folder`) — каталог
+     в `/media/podcasts`, например KissFM. В `catalog.json` (формат 2): `podcasts`, `folders`,
+     у эпизода — `podcast`;
+   - подкаст = тег альбома (TALB), исправленный правилами из `podcasts.toml` (варианты
      написания и префиксы имён файлов; префикс файла важнее тега). Названия, отличающиеся
      только регистром/пунктуацией, сливаются автоматически;
    - пишет `build/catalog.json` — источник для генерации страниц.
@@ -38,8 +41,10 @@
      читается ID3-тег и 16 КБ после него (`podscan/src/mpeg.rs`). Из первого MPEG-фрейма —
      версия, layer, битрейт, CBR/VBR, частота, каналы (`audio` в `catalog.json`);
      длительность — из Xing/Info/VBRI или по размеру для CBR, иначе из TLEN.
-2. **Генератор страниц** (Rust, следующий шаг) — из `catalog.json` строит
-   `build/gopher/**/gophermap` и `build/www/**/index.html`.
+2. **Генератор `sitegen`** (Rust) — из `catalog.json` строит `build/gopher/**/gophermap`
+   и `build/www/**/index.html` (`index.html`, `podcast/<slug>/` — по подкастам,
+   `dir/<slug>/` — по папкам; те же пути, что в Gopher). Ссылки в HTML относительные
+   (`/media/…`, `/playlists/…`), страницы работают на любом хосте.
    HTML в ретро-стиле: всё оформление — только текстовыми символами (без картинок и SVG).
    Заголовок «KISS FM / PODCASTS» — пиксельный шрифт из блоков `█` с контурами из
    box-drawing символов и радужным градиентом (в Gopher — тот же баннер без цвета).
@@ -56,7 +61,9 @@
    клавиши его.
 3. **Gopher-сервер** — свой, на Rust (tokio). Отдаёт `build/gopher`,
    плейлисты и, при необходимости, аудио.
-4. **HTTPS** — пока Caddy: отдаёт `build/www`, плейлисты и аудио из `/media/podcasts`.
+4. **HTTPS** — Caddy, конфиг `caddy/Caddyfile`: отдаёт `build/www`, плейлисты и аудио из
+   `/media/podcasts` (под `/media/` — только `*.mp3`: в библиотеке есть чужой `index.html`).
+   CSP разрешает только inline-скрипты/стили и шрифты Google; админ-API выключен.
    Обязательно поддержка Range-запросов (перемотка в плеерах).
    Плейлисты `/playlists/*.m3u8` — с `Content-Disposition: attachment`: иначе Chrome и Safari
    открывают их встроенным HLS-плеером вместо скачивания (на страницах — атрибут `download`).
@@ -100,9 +107,17 @@
 1. [x] Dev-контейнер.
 2. [x] podscan: сканирование, ID3, M3U8, catalog.json. Проверено на реальных файлах
        (KissFM, 291 MP3): читается ~9 КБ на файл, скан ~8 с через rclone.
-3. [ ] Генератор gophermap и HTML.
-4. [ ] Gopher-сервер на Rust.
-5. [ ] HTTPS через Caddy с Range-запросами.
+3. [x] Генератор `sitegen`: gophermap и HTML (`cargo run -p sitegen -- --gopher-host <dev-host>`;
+       хост и порт Gopher — `--gopher-host`, `--gopher-port`).
+   Dev-запуск в контейнере (порты 7070 и 8080 опубликованы и на radxa, `appPort`):
+   `cargo run -p podscan -- --base-url http://<dev-host>:8080`, затем sitegen, затем
+   `cargo run -p gopherd -- --listen 0.0.0.0:7070` и `caddy run --config caddy/Caddyfile --adapter caddyfile`.
+4. [x] Gopher-сервер `gopherd` (tokio): селекторы `/`, `/podcast/<slug>/`, `/dir/<slug>/`,
+       `/playlists/…`, `/media/…`; запуск: `cargo run -p gopherd -- --listen 127.0.0.1:7070`.
+       Тесты атак — `gopherd/tests/server.rs`.
+5. [~] HTTPS через Caddy с Range-запросами: `caddy/Caddyfile` готов и проверен в dev (Range,
+       attachment для плейлистов, CSP); осталось — домен и сертификат (`SITE_ADDRESS`).
+       В контейнере Debian-пакет Caddy 2.6 — только для разработки, в продакшене свежий образ.
 6. [ ] Docker-образы (multi-stage, non-root).
 7. [ ] Kubernetes: веб через Ingress; Gopher — голый TCP на 70,
        нужен Service типа LoadBalancer/NodePort или TCP-проброс в Ingress-контроллере.
@@ -115,7 +130,7 @@
   MPEG-заголовка: известна у всех 291 файла (все MPEG-1 Layer III CBR, 192–320 кбит/с).
   Скан ~10 с через rclone.
 - 191 из 291 файла без тега названия — исполнитель и название разбираются из имени файла
-  (`podscan/src/filename.rs`): программа ищется в словах имени, остальное — исполнитель,
+  (`podscan/src/filename.rs`): подкаст ищется в словах имени, остальное — исполнитель,
   написание исполнителя уточняется по тегам других файлов. Открыто: добавлять ли дату
-  выпуска в название (сейчас в плейлисте программы много одинаковых строк).
-- Отдавать ли аудио по Gopher или только ссылками на HTTPS.
+  выпуска в название (сейчас в плейлисте подкаста много одинаковых строк).
+- ~~Аудио по Gopher~~ — и по Gopher (тип 9, `/media/…`), и ссылкой на HTTPS (тип h).

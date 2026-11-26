@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result, bail};
 use podscan::catalog::{Catalog, FORMAT_VERSION};
-use podscan::programs::{self, Programs};
+use podscan::podcasts::{self, PodcastRules};
 use podscan::{m3u, scan};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -17,7 +17,7 @@ const USAGE: &str = "\
 Параметры:
   --media <ПАПКА>     корень медиа (по умолчанию /media/podcasts)
   --out <ПАПКА>       каталог сборки (по умолчанию build)
-  --programs <ФАЙЛ>   правила программ (по умолчанию programs.toml)
+  --rules <ФАЙЛ>      правила подкастов (по умолчанию podcasts.toml)
   --base-url <URL>    базовый URL сайта, например https://example.org
                       (по умолчанию $PODCAST_BASE_URL или http://localhost:8080)
   -h, --help          эта справка";
@@ -25,14 +25,14 @@ const USAGE: &str = "\
 struct Args {
     media: PathBuf,
     out: PathBuf,
-    programs: PathBuf,
+    rules: PathBuf,
     base_url: String,
 }
 
 fn parse_args() -> Result<Option<Args>> {
     let mut media = PathBuf::from("/media/podcasts");
     let mut out = PathBuf::from("build");
-    let mut programs = PathBuf::from("programs.toml");
+    let mut rules = PathBuf::from("podcasts.toml");
     let mut base_url = std::env::var("PODCAST_BASE_URL").ok();
 
     let mut it = std::env::args().skip(1);
@@ -41,7 +41,7 @@ fn parse_args() -> Result<Option<Args>> {
         match arg.as_str() {
             "--media" => media = value("--media")?.into(),
             "--out" => out = value("--out")?.into(),
-            "--programs" => programs = value("--programs")?.into(),
+            "--rules" => rules = value("--rules")?.into(),
             "--base-url" => base_url = Some(value("--base-url")?),
             "-h" | "--help" => {
                 println!("{USAGE}");
@@ -66,7 +66,7 @@ fn parse_args() -> Result<Option<Args>> {
     Ok(Some(Args {
         media,
         out,
-        programs,
+        rules,
         base_url,
     }))
 }
@@ -76,9 +76,9 @@ fn main() -> Result<()> {
         return Ok(());
     };
 
-    let rules = Programs::load(&args.programs)?;
-    let mut podcasts = scan::scan(&args.media, &args.base_url, &rules)?;
-    let program_list = programs::group(&mut podcasts);
+    let rules = PodcastRules::load(&args.rules)?;
+    let mut folders = scan::scan(&args.media, &args.base_url, &rules)?;
+    let podcast_list = podcasts::group(&mut folders);
     let catalog = Catalog {
         format_version: FORMAT_VERSION,
         generated_at: SystemTime::now()
@@ -87,11 +87,11 @@ fn main() -> Result<()> {
             .unwrap_or(0),
         base_url: args.base_url,
         all_playlist: "playlists/all.m3u8".to_owned(),
-        programs: program_list,
-        podcasts,
+        podcasts: podcast_list,
+        folders,
     };
 
-    let all_episodes = || catalog.podcasts.iter().flat_map(|p| &p.episodes);
+    let all_episodes = || catalog.folders.iter().flat_map(|p| &p.episodes);
     let by_path: HashMap<&str, _> = all_episodes().map(|e| (e.path.as_str(), e)).collect();
 
     let mut playlists: Vec<(String, String)> = Vec::new();
@@ -99,11 +99,11 @@ fn main() -> Result<()> {
         catalog.all_playlist.clone(),
         m3u::render("Все эпизоды", all_episodes()),
     ));
-    for p in &catalog.podcasts {
+    for p in &catalog.folders {
         playlists.push((p.playlist.clone(), m3u::render(&p.title, &p.episodes)));
     }
-    for a in &catalog.programs {
-        let title = a.name.as_deref().unwrap_or("Без программы");
+    for a in &catalog.podcasts {
+        let title = a.name.as_deref().unwrap_or("Без подкаста");
         // Paths come from this same catalog, so all of them are found.
         let eps = a
             .episodes
@@ -114,7 +114,7 @@ fn main() -> Result<()> {
 
     // Write playlists and remove stale ones in each directory.
     let mut keep: HashMap<PathBuf, HashSet<String>> = HashMap::new();
-    for sub in ["playlists", "playlists/dir", "playlists/program"] {
+    for sub in ["playlists", "playlists/dir", "playlists/podcast"] {
         let dir = args.out.join(sub);
         fs::create_dir_all(&dir)
             .with_context(|| format!("не удалось создать {}", dir.display()))?;
@@ -137,28 +137,28 @@ fn main() -> Result<()> {
     let json = serde_json::to_vec_pretty(&catalog)?;
     write_atomic(&args.out.join("catalog.json"), &json)?;
 
-    let episodes: usize = catalog.podcasts.iter().map(|p| p.episodes.len()).sum();
+    let episodes: usize = catalog.folders.iter().map(|p| p.episodes.len()).sum();
     let untagged: usize = catalog
-        .podcasts
+        .folders
         .iter()
         .flat_map(|p| &p.episodes)
         .filter(|e| !e.tagged)
         .count();
     let no_duration: usize = catalog
-        .podcasts
+        .folders
         .iter()
         .flat_map(|p| &p.episodes)
         .filter(|e| e.duration_secs.is_none())
         .count();
-    let no_program = catalog
-        .programs
+    let no_podcast = catalog
+        .podcasts
         .iter()
         .find(|a| a.name.is_none())
         .map_or(0, |a| a.episodes.len());
     println!(
-        "Готово: подкастов {}, программ {} (без программы: {no_program}), эпизодов {episodes} (без тега названия: {untagged}, без длительности: {no_duration}) → {}",
-        catalog.podcasts.len(),
-        catalog.programs.iter().filter(|a| a.name.is_some()).count(),
+        "Готово: папок {}, подкастов {} (без подкаста: {no_podcast}), эпизодов {episodes} (без тега названия: {untagged}, без длительности: {no_duration}) → {}",
+        catalog.folders.len(),
+        catalog.podcasts.iter().filter(|a| a.name.is_some()).count(),
         args.out.display()
     );
     Ok(())
@@ -174,7 +174,7 @@ fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     fs::rename(&tmp, path).with_context(|| format!("не удалось переименовать в {}", path.display()))
 }
 
-/// Removes playlists of podcasts that are no longer in the catalog.
+/// Removes playlists of folders that are no longer in the catalog.
 fn remove_stale(dir: &Path, keep: &HashSet<String>) -> Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;

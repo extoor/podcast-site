@@ -1,7 +1,7 @@
-# Rules that determine an episode's program (show) for playlists/program/*.m3u8.
+# Rules that determine an episode's podcast (show) for playlists/podcast/*.m3u8.
 #
-# Each [[program]] block:
-#   name  — canonical program name (shown as is);
+# Each [[podcast]] block:
+#   name  — canonical podcast name (shown as is);
 #   tags  — other spellings found in the album tag (ID3 TALB).
 #           Compared ignoring case, spaces and punctuation, so
 #           "MegaBeat" = "Megabeat" and "&FRIENDS" = "FRIENDS". name itself is also a variant.
@@ -9,64 +9,64 @@
 #           and to fix wrong tags: a file name rule wins over the tag.
 #           If several prefixes match, the longest one wins.
 #
-# Order: file prefix → tag from tags/name → tag as is → «Без программы» (no program).
+# Order: file prefix → tag from tags/name → tag as is → «Без подкаста» (no podcast).
 # Names that differ only in case/punctuation are merged even without rules.
 # After editing: cargo run --release -p podscan
 
 # --- Files without tags -----------------------------------------------------
 
-[[program]]
+[[podcast]]
 name = "A State of Trance"
 files = ["armin-van-buuren-a-state-of-trance-"]
 
-[[program]]
+[[podcast]]
 name = "Club Styles"
 files = ["anna-lee-club-styles-"]
 
-[[program]]
+[[podcast]]
 name = "Fashion Music Records"
 files = ["dj-favorite-fashion-music-records-"]
 
-[[program]]
+[[podcast]]
 name = "Fmusic"
 files = ["ania-arfeeva-fmusic-"]
 
-[[program]]
+[[podcast]]
 name = "Kiss FM Club"
 files = ["kissfm-club-"]
 
-[[program]]
+[[podcast]]
 name = "Kiss FM Dance Marafon"
 files = ["kiss-fm-dance-marafon-"]
 
-[[program]]
+[[podcast]]
 name = "Kiss FM Top"
 # No album in the tags (only the artist KISSFM).
 files = ["kissfm-top-"]
 
-[[program]]
+[[podcast]]
 name = "On Decks"
 files = ["bald-bros-on-decks-"]
 
-[[program]]
+[[podcast]]
 name = "Patifon"
 files = ["sania-dymov-patifon-"]
 
 # --- Different spellings and typos -----------------------------------------
 
-[[program]]
+[[podcast]]
 name = "2 in 1"
 files = ["sasha-sam-"]
 
-[[program]]
+[[podcast]]
 name = "&Friends"
 # «andfriends» in file names.
 tags = ["and friends"]
 files = ["mrsunny"]
 
-[[program]]
+[[podcast]]
 name = "Best Club Show"
-# «Best Clubs Show» and the typo «Best Club Shot» are treated as the same program.
+# «Best Clubs Show» and the typo «Best Club Shot» are treated as the same podcast.
 # If these are different shows, move «Best Clubs Show» into its own block.
 tags = ["Best Clubs Show", "Best Club Shot"]
 files = [
@@ -76,47 +76,47 @@ files = [
     "fabian-mauri-best-club-show-",
 ]
 
-[[program]]
+[[podcast]]
 name = "Buy One Get One Free"
 tags = ["BOGOF"]
 # Episodes with guests Jalsomino and ML Key are BOGOF too.
 files = ["buy-one-get-one-free-", "jalsomino-ml-key-buy-one-get-one-free-"]
 
-[[program]]
+[[podcast]]
 name = "Colours of House"
 files = ["van-gogh-colours-of-house-"]
 
-[[program]]
+[[podcast]]
 name = "Happy Tunes"
 files = ["kristyen-happy-tunes-", "dj-kristyen-happy-tunes-"]
 
-[[program]]
+[[podcast]]
 name = "MegaBeat"
 files = ["cosmonaut-megabeat-"]
 
-[[program]]
+[[podcast]]
 name = "Night Temptation"
 tags = ["Night Temptation Radioshow"]
 files = ["dj-romantic-"]
 
-[[program]]
+[[podcast]]
 name = "Preview"
 files = ["lutique-preview-", "lutiqie-preview-", "dj-lutique-preview-"]
 
-[[program]]
+[[podcast]]
 name = "Russia Goes Clubbing"
 files = ["bobina-russia-goes-clubbing-"]
 
-[[program]]
+[[podcast]]
 name = "Shapes of the Rhythms"
 tags = ["Shape Of The Rhythms"]
 files = ["igor-samosud-"]
 
-[[program]]
+[[podcast]]
 name = "Slam Radioshow"
 files = ["magnit-"]
 
-[[program]]
+[[podcast]]
 name = "Zebra"
 tags = ["Bastards ZEBRA", "ZEBRA Mix Show"]
 files = ["mordax-"]

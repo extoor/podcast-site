@@ -3,10 +3,10 @@
 //! Files are not read in full: `id3` reads only the tag header at the start
 //! of the file (over rclone that is a few kilobytes, not the whole file).
 
-use crate::catalog::{Episode, Podcast};
+use crate::catalog::{Episode, Folder};
 use crate::filename;
 use crate::mpeg;
-use crate::programs::{Programs, normalize};
+use crate::podcasts::{PodcastRules, normalize};
 use crate::text::{clean, encode_path, slugify, unique_slug};
 use anyhow::{Context, Result};
 use id3::TagLike;
@@ -17,9 +17,9 @@ use std::path::Path;
 /// Supported audio file extensions (lowercase).
 const AUDIO_EXT: &[&str] = &["mp3"];
 
-/// Scans `root`: every top-level directory is a podcast.
-/// Hidden entries and symlinks are skipped. Podcasts without audio are left out.
-pub fn scan(root: &Path, base_url: &str, programs: &Programs) -> Result<Vec<Podcast>> {
+/// Scans `root`: every top-level directory is a folder.
+/// Hidden entries and symlinks are skipped. Folders without audio are left out.
+pub fn scan(root: &Path, base_url: &str, rules: &PodcastRules) -> Result<Vec<Folder>> {
     let mut dirs = Vec::new();
     for entry in
         fs::read_dir(root).with_context(|| format!("не удалось прочитать {}", root.display()))?
@@ -38,17 +38,17 @@ pub fn scan(root: &Path, base_url: &str, programs: &Programs) -> Result<Vec<Podc
     dirs.sort();
 
     let mut used_slugs = HashSet::new();
-    let mut podcasts = Vec::new();
+    let mut folders = Vec::new();
     let mut tails = HashMap::new();
     for dir in dirs {
-        let episodes = scan_podcast(&root.join(&dir), &dir, base_url, programs, &mut tails)?;
+        let episodes = scan_folder(&root.join(&dir), &dir, base_url, rules, &mut tails)?;
         if episodes.is_empty() {
             warn(&format!("{dir}: нет аудиофайлов, пропущено"));
             continue;
         }
         let slug = unique_slug(&slugify(&dir), &mut used_slugs);
         let total_duration_secs = episodes.iter().filter_map(|e| e.duration_secs).sum();
-        podcasts.push(Podcast {
+        folders.push(Folder {
             title: clean(&dir).unwrap_or_else(|| slug.clone()),
             playlist: format!("playlists/dir/{slug}.m3u8"),
             slug,
@@ -57,18 +57,18 @@ pub fn scan(root: &Path, base_url: &str, programs: &Programs) -> Result<Vec<Podc
             episodes,
         });
     }
-    unify_artist_spelling(&mut podcasts);
-    match_tagged_siblings(&mut podcasts, &tails);
-    Ok(podcasts)
+    unify_artist_spelling(&mut folders);
+    match_tagged_siblings(&mut folders, &tails);
+    Ok(folders)
 }
 
 /// An artist parsed from a file name is lowercase and has no
 /// punctuation (`mrsunny`, `mordax bastards`). If the same artist (ignoring
 /// case and punctuation) appears in the tags of other files, use the tag spelling
 /// (`Mr.Sunny`, `MORDAX Bastards`), the first one seen.
-fn unify_artist_spelling(podcasts: &mut [Podcast]) {
+fn unify_artist_spelling(folders: &mut [Folder]) {
     let mut spelling: HashMap<String, String> = HashMap::new();
-    for ep in podcasts
+    for ep in folders
         .iter()
         .flat_map(|p| &p.episodes)
         .filter(|e| e.tagged)
@@ -77,7 +77,7 @@ fn unify_artist_spelling(podcasts: &mut [Podcast]) {
             spelling.entry(normalize(a)).or_insert_with(|| a.clone());
         }
     }
-    for ep in podcasts
+    for ep in folders
         .iter_mut()
         .flat_map(|p| &mut p.episodes)
         .filter(|e| !e.tagged)
@@ -90,43 +90,43 @@ fn unify_artist_spelling(podcasts: &mut [Podcast]) {
     }
 }
 
-/// Makes untagged episodes look like tagged episodes of the same program.
+/// Makes untagged episodes look like tagged episodes of the same podcast.
 ///
-/// A title parsed from a file name is `<program> <tail>` (`tails` maps an episode
-/// path to its tail). If tagged episodes of the program start their titles with only
-/// the last words of the program name (or none of it), the parsed title is cut the
-/// same way: with tags like `Top 2014 Mega Podcast #1` for program `Kiss FM Top`,
+/// A title parsed from a file name is `<podcast> <tail>` (`tails` maps an episode
+/// path to its tail). If tagged episodes of the podcast start their titles with only
+/// the last words of the podcast name (or none of it), the parsed title is cut the
+/// same way: with tags like `Top 2014 Mega Podcast #1` for podcast `Kiss FM Top`,
 /// `Kiss FM Top 2016 Mega Podcast 100` becomes `Top 2016 Mega Podcast 100`.
-/// A parsed title that is just the program name (no tail) gets the tagged title
+/// A parsed title that is just the podcast name (no tail) gets the tagged title
 /// shared by several episodes, if any (`BOGOF` for `Buy One Get One Free`).
 /// An untagged episode without an artist gets the most common tagged artist.
-/// Programs without tagged episodes are left as is.
-fn match_tagged_siblings(podcasts: &mut [Podcast], tails: &HashMap<String, String>) {
+/// Podcasts without tagged episodes are left as is.
+fn match_tagged_siblings(folders: &mut [Folder], tails: &HashMap<String, String>) {
     struct Style {
-        /// Program words that start a title.
+        /// Podcast words that start a title.
         kept: Vec<String>,
         /// A title shared by several tagged episodes.
         common_title: Option<String>,
         artist: Option<String>,
     }
-    // normalized program → style of its tagged episodes
+    // normalized podcast → style of its tagged episodes
     let mut styles: HashMap<String, Style> = HashMap::new();
     let mut tagged: HashMap<String, (String, Vec<&Episode>)> = HashMap::new();
-    for ep in podcasts
+    for ep in folders
         .iter()
         .flat_map(|p| &p.episodes)
         .filter(|e| e.tagged)
     {
-        if let Some(program) = &ep.program {
+        if let Some(podcast) = &ep.podcast {
             tagged
-                .entry(normalize(program))
-                .or_insert_with(|| (program.clone(), Vec::new()))
+                .entry(normalize(podcast))
+                .or_insert_with(|| (podcast.clone(), Vec::new()))
                 .1
                 .push(ep);
         }
     }
-    for (key, (program, eps)) in tagged {
-        let words: Vec<&str> = program.split_whitespace().collect();
+    for (key, (podcast, eps)) in tagged {
+        let words: Vec<&str> = podcast.split_whitespace().collect();
         let skip = most_common(eps.iter().map(|e| {
             let title = normalize(&e.title);
             (0..words.len())
@@ -144,15 +144,15 @@ fn match_tagged_siblings(podcasts: &mut [Podcast], tails: &HashMap<String, Strin
         styles.insert(key, style);
     }
 
-    for ep in podcasts
+    for ep in folders
         .iter_mut()
         .flat_map(|p| &mut p.episodes)
         .filter(|e| !e.tagged)
     {
-        let Some(program) = ep.program.as_deref() else {
+        let Some(podcast) = ep.podcast.as_deref() else {
             continue;
         };
-        let Some(style) = styles.get(&normalize(program)) else {
+        let Some(style) = styles.get(&normalize(podcast)) else {
             continue;
         };
         if let Some(tail) = tails.get(&ep.path) {
@@ -163,7 +163,7 @@ fn match_tagged_siblings(podcasts: &mut [Podcast], tails: &HashMap<String, Strin
                 .chain([tail.as_str()])
                 .collect::<Vec<_>>()
                 .join(" ");
-        } else if normalize(&ep.title) == normalize(program)
+        } else if normalize(&ep.title) == normalize(podcast)
             && let Some(t) = &style.common_title
         {
             ep.title.clone_from(t);
@@ -187,11 +187,11 @@ fn most_common<T: PartialEq>(items: impl Iterator<Item = T>) -> Option<(T, usize
     counts.into_iter().find(|(_, n)| *n == max)
 }
 
-fn scan_podcast(
+fn scan_folder(
     path: &Path,
     dir: &str,
     base_url: &str,
-    programs: &Programs,
+    rules: &PodcastRules,
     tails: &mut HashMap<String, String>,
 ) -> Result<Vec<Episode>> {
     let mut files = Vec::new();
@@ -255,14 +255,14 @@ fn scan_podcast(
         let tag_title = tag.as_ref().and_then(|t| t.title()).and_then(clean);
         let tag_artist = tag.as_ref().and_then(|t| t.artist()).and_then(clean);
         let album = tag.as_ref().and_then(|t| t.album()).and_then(clean);
-        let program = programs.resolve(&name, album.as_deref());
+        let podcast = rules.resolve(&name, album.as_deref());
         let tagged = tag_title.is_some();
         // No title tag: artist and title come from the file name.
         // An artist from the tag, if present, wins over the parsed one.
         let (title, artist) = match tag_title {
             Some(t) => (t, tag_artist),
             None => {
-                let parsed = filename::parse(stem(&name), program.as_deref(), programs);
+                let parsed = filename::parse(stem(&name), podcast.as_deref(), rules);
                 let title = clean(&parsed.title).unwrap_or_else(|| name.clone());
                 if let Some(tail) = parsed.tail.as_deref().and_then(clean) {
                     tails.insert(rel.clone(), tail);
@@ -276,7 +276,7 @@ fn scan_podcast(
         episodes.push(Episode {
             title,
             artist,
-            program,
+            podcast,
             album,
             duration_secs: probe.as_ref().and_then(|p| p.duration_secs).or_else(|| {
                 tag.as_ref()
@@ -284,6 +284,7 @@ fn scan_podcast(
                     .and_then(|ms| plausible_duration(ms, size))
             }),
             audio: probe.map(|p| p.info),
+            date: filename::date(stem(&name)),
             size,
             url: format!("{base_url}/media/{}", encode_path(&rel)),
             path: rel,
@@ -352,14 +353,15 @@ mod tests {
         assert_eq!(plausible_duration(0, 1000), None);
     }
 
-    fn ep(path: &str, program: &str, title: &str, artist: Option<&str>, tagged: bool) -> Episode {
+    fn ep(path: &str, podcast: &str, title: &str, artist: Option<&str>, tagged: bool) -> Episode {
         Episode {
             title: title.to_owned(),
             artist: artist.map(str::to_owned),
             album: None,
-            program: Some(program.to_owned()),
+            podcast: Some(podcast.to_owned()),
             duration_secs: None,
             audio: None,
+            date: None,
             size: 0,
             path: path.to_owned(),
             url: String::new(),
@@ -367,8 +369,8 @@ mod tests {
         }
     }
 
-    fn podcast(episodes: Vec<Episode>) -> Vec<Podcast> {
-        vec![Podcast {
+    fn folder(episodes: Vec<Episode>) -> Vec<Folder> {
+        vec![Folder {
             slug: "p".into(),
             title: "P".into(),
             dir: "P".into(),
@@ -380,7 +382,7 @@ mod tests {
 
     #[test]
     fn untagged_titles_follow_tagged_siblings() {
-        let mut p = podcast(vec![
+        let mut p = folder(vec![
             ep(
                 "a",
                 "Kiss FM Top",
@@ -438,9 +440,9 @@ mod tests {
     }
 
     #[test]
-    fn bare_program_title_takes_common_tagged_title() {
+    fn bare_podcast_title_takes_common_tagged_title() {
         let bogof = "Buy One Get One Free";
-        let mut p = podcast(vec![
+        let mut p = folder(vec![
             ep("a", bogof, "BOGOF", Some(bogof), true),
             ep("b", bogof, "BOGOF", Some(bogof), true),
             ep("c", bogof, bogof, None, false),
@@ -458,8 +460,8 @@ mod tests {
     }
 
     #[test]
-    fn full_program_name_in_tags_is_kept() {
-        let mut p = podcast(vec![
+    fn full_podcast_name_in_tags_is_kept() {
+        let mut p = folder(vec![
             ep(
                 "a",
                 "Preview",

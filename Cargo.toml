@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["podscan"]
+members = ["podscan", "sitegen", "gopherd"]
 
 [workspace.package]
 edition = "2024"

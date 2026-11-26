@@ -1,11 +1,11 @@
 //! Artist and title from the file name, for files without a title tag.
 //!
 //! KissFM file names look like this:
-//! `<artist>-<program>-<YYYY-MM-DD>-podkasty-<DD.MM.YY>-kissfm.ua.mp3`,
-//! but sometimes artist and program are swapped
-//! (`best-clubs-show-harkov-misto-…`). So we look for the program among the words
-//! (already determined via `programs.toml`) and treat the rest as the artist.
-//! The title becomes the canonical program name plus the tail of the name
+//! `<artist>-<podcast>-<YYYY-MM-DD>-podkasty-<DD.MM.YY>-kissfm.ua.mp3`,
+//! but sometimes artist and podcast are swapped
+//! (`best-clubs-show-harkov-misto-…`). So we look for the podcast among the words
+//! (already determined via `podcasts.toml`) and treat the rest as the artist.
+//! The title becomes the canonical podcast name plus the tail of the name
 //! (episode number etc.):
 //!
 //! - `van-gogh-colours-of-house-…`       → «Van Gogh» — «Colours of House»;
@@ -13,27 +13,27 @@
 //! - `dj-lutique-preview-radioshow-20-…` → «Dj Lutique» — «Preview Radioshow 20 …»;
 //! - `kissfm-top-2016-mega-podcast-100`  → no artist — «Kiss FM Top 2016 Mega Podcast 100».
 //!
-//! If no program is found in the name, the whole name is the artist and the
-//! title becomes the program name. The artist's case is later refined from the tags
+//! If no podcast is found in the name, the whole name is the artist and the
+//! title becomes the podcast name. The artist's case is later refined from the tags
 //! of other files, and the title and artist are adjusted to match tagged episodes
-//! of the same program (see `scan`).
+//! of the same podcast (see `scan`).
 
-use crate::programs::{Programs, normalize};
+use crate::podcasts::{PodcastRules, normalize};
 
 /// Result of parsing a file name.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Parsed {
     pub artist: Option<String>,
     pub title: String,
-    /// The part of the title after the program name (episode number etc.),
-    /// when the title is `<program> <tail>`.
+    /// The part of the title after the podcast name (episode number etc.),
+    /// when the title is `<podcast> <tail>`.
     pub tail: Option<String>,
 }
 
-/// Parses a file name without extension. `program` is the already determined program.
-pub fn parse(stem: &str, program: Option<&str>, programs: &Programs) -> Parsed {
+/// Parses a file name without extension. `podcast` is the already determined podcast.
+pub fn parse(stem: &str, podcast: Option<&str>, rules: &PodcastRules) -> Parsed {
     let words = words(stem);
-    let Some(program) = program else {
+    let Some(podcast) = podcast else {
         return Parsed {
             artist: None,
             title: join(&words).unwrap_or_else(|| stem.to_owned()),
@@ -41,20 +41,20 @@ pub fn parse(stem: &str, program: Option<&str>, programs: &Programs) -> Parsed {
         };
     };
 
-    // First look for the exact program name, then for spellings from `tags`:
+    // First look for the exact podcast name, then for spellings from `tags`:
     // in `mordax-bastards-zebra` the right match is «zebra», not the variant «bastards zebra».
-    let canonical = normalize(program);
+    let canonical = normalize(podcast);
     let Some((i, j)) = find_span(&words, |norm| norm == canonical)
-        .or_else(|| find_span(&words, |norm| programs.matches(program, norm)))
+        .or_else(|| find_span(&words, |norm| rules.matches(podcast, norm)))
     else {
         return Parsed {
             artist: join(&words),
-            title: program.to_owned(),
+            title: podcast.to_owned(),
             tail: None,
         };
     };
     let (before, after) = (&words[..i], &words[j..]);
-    let after_is_program = programs.matches(program, &normalize(&after.concat()));
+    let after_is_podcast = rules.matches(podcast, &normalize(&after.concat()));
     let after_starts_with_word = after
         .first()
         .and_then(|w| w.chars().next())
@@ -62,11 +62,11 @@ pub fn parse(stem: &str, program: Option<&str>, programs: &Programs) -> Parsed {
 
     let (artist, tail): (&[&str], &[&str]) = if !before.is_empty() {
         (before, after)
-    } else if after_is_program {
+    } else if after_is_podcast {
         // `buy-one-get-one-free-bogof`, `kissfm-club-kissfm-club`: the name is repeated.
         (&[], &[])
     } else if after_starts_with_word {
-        // Program at the start of the name: the artist follows it.
+        // Podcast at the start of the name: the artist follows it.
         (after, &[])
     } else {
         // `kiss-fm-dance-marafon-2003`, `kissfm-top-2016-…`: the tail is the episode number.
@@ -74,14 +74,40 @@ pub fn parse(stem: &str, program: Option<&str>, programs: &Programs) -> Parsed {
     };
     let tail = join(tail);
     let title = match &tail {
-        Some(t) => format!("{program} {t}"),
-        None => program.to_owned(),
+        Some(t) => format!("{podcast} {t}"),
+        None => podcast.to_owned(),
     };
     Parsed {
         artist: join(artist),
         title,
         tail,
     }
+}
+
+/// Release date `YYYY-MM-DD` from a file name without extension: the publication
+/// date `podkasty-DD.MM.YY` of KissFM names, otherwise a `YYYY-MM-DD` run of words.
+pub fn date(stem: &str) -> Option<String> {
+    let lower = stem.to_ascii_lowercase();
+    if let Some(i) = lower.find("podkasty-")
+        && let Some(d) = lower.get(i + 9..i + 17)
+        && let [dd, mm, yy] = d.split('.').collect::<Vec<_>>()[..]
+        && is_digits(dd, 2)
+        && is_digits(mm, 2)
+        && is_digits(yy, 2)
+    {
+        return valid_date(&format!("20{yy}"), mm, dd);
+    }
+    let words: Vec<&str> = stem.split(['-', '_', ' ']).collect();
+    words.windows(3).find_map(|w| {
+        (is_digits(w[0], 4) && is_digits(w[1], 2) && is_digits(w[2], 2))
+            .then(|| valid_date(w[0], w[1], w[2]))
+            .flatten()
+    })
+}
+
+fn valid_date(y: &str, m: &str, d: &str) -> Option<String> {
+    let (mn, dn): (u32, u32) = (m.parse().ok()?, d.parse().ok()?);
+    ((1..=12).contains(&mn) && (1..=31).contains(&dn)).then(|| format!("{y}-{m}-{d}"))
 }
 
 /// Words of the name without the `-podkasty-…` suffix and the `YYYY-MM-DD` date.
@@ -143,27 +169,27 @@ mod tests {
     use super::*;
 
     const RULES: &str = r#"
-        [[program]]
+        [[podcast]]
         name = "Best Club Show"
         tags = ["Best Clubs Show"]
-        [[program]]
+        [[podcast]]
         name = "Preview"
-        [[program]]
+        [[podcast]]
         name = "&Friends"
         tags = ["and friends"]
-        [[program]]
+        [[podcast]]
         name = "Kiss FM Dance Marafon"
-        [[program]]
+        [[podcast]]
         name = "Zebra"
         tags = ["Bastards ZEBRA"]
-        [[program]]
+        [[podcast]]
         name = "Buy One Get One Free"
         tags = ["BOGOF"]
     "#;
 
-    fn p(stem: &str, program: Option<&str>) -> (Option<String>, String) {
-        let rules = Programs::parse(RULES).unwrap();
-        let r = parse(stem, program, &rules);
+    fn p(stem: &str, podcast: Option<&str>) -> (Option<String>, String) {
+        let rules = PodcastRules::parse(RULES).unwrap();
+        let r = parse(stem, podcast, &rules);
         (r.artist, r.title)
     }
 
@@ -172,7 +198,7 @@ mod tests {
     }
 
     #[test]
-    fn program_first() {
+    fn podcast_first() {
         assert_eq!(
             p(
                 "best-clubs-show-harkov-misto-2015-07-06-podkasty-06.07.15-kissfm.ua",
@@ -209,7 +235,7 @@ mod tests {
     }
 
     #[test]
-    fn repeated_program_is_not_artist() {
+    fn repeated_podcast_is_not_artist() {
         assert_eq!(
             p(
                 "buy-one-get-one-free-bogof-2015-04-20",
@@ -231,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn program_not_in_name() {
+    fn podcast_not_in_name() {
         assert_eq!(
             p("mrsunny--podkasty-28.03.16-kissfm.ua", Some("&Friends")),
             (some("Mrsunny"), "&Friends".to_owned())
@@ -239,7 +265,24 @@ mod tests {
     }
 
     #[test]
-    fn no_program() {
+    fn dates() {
+        assert_eq!(
+            date("mrsunny--podkasty-28.03.16-kissfm.ua").as_deref(),
+            Some("2016-03-28")
+        );
+        // the publication date wins over the date in the name
+        assert_eq!(
+            date("zebra-2015-04-04-podkasty-05.04.15-kissfm.ua").as_deref(),
+            Some("2015-04-05")
+        );
+        assert_eq!(date("show-2016-01-02").as_deref(), Some("2016-01-02"));
+        assert_eq!(date("show-2016-13-02"), None);
+        assert_eq!(date("kissfm-top-2016-mega-podcast-100"), None);
+        assert_eq!(date("x-podkasty-ab.cd.ef"), None);
+    }
+
+    #[test]
+    fn no_podcast() {
         assert_eq!(
             p("some-show-2016-01-02-podkasty-02.01.16-kissfm.ua", None),
             (None, "Some Show".to_owned())

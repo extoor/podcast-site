@@ -23,12 +23,15 @@
   },
 
   "forwardPorts": [7070, 8080],
+  // Gopher and HTTP are also published on the radxa host itself, for clients in
+  // the LAN (forwardPorts only reach the machine running VS Code).
+  "appPort": ["7070:7070", "8080:8080"],
   "portsAttributes": {
     "7070": { "label": "Gopher (dev)" },
     "8080": { "label": "HTTP (dev)" }
   },
 
-  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.claude /usr/local/cargo/registry && cargo install cargo-audit cargo-deny --locked && gpg --import .devcontainer/signing-key.asc && echo 'E1D456A80E71B7AF640F9B5A9D5A6C199F1B5404:6:' | gpg --import-ownertrust",
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.claude /usr/local/cargo/registry && sudo apt-get update -q && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q caddy chromium && cargo install cargo-audit cargo-deny --locked && gpg --import .devcontainer/signing-key.asc && echo 'E1D456A80E71B7AF640F9B5A9D5A6C199F1B5404:6:' | gpg --import-ownertrust",
 
   "customizations": {
     "vscode": {

@@ -8,6 +8,6 @@ pub mod catalog;
 pub mod filename;
 pub mod m3u;
 pub mod mpeg;
-pub mod programs;
+pub mod podcasts;
 pub mod scan;
 pub mod text;

@@ -1,0 +1,12 @@
+[package]
+name = "sitegen"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Site generator: catalog.json → gophermap menus (and HTML pages)"
+
+[dependencies]
+anyhow = "1.0.105"
+podscan = { path = "../podscan" }
+serde_json = "1.0.154"

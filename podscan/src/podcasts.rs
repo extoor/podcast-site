@@ -1,36 +1,36 @@
-//! Determining an episode's program (show): album tag + rules from `programs.toml`.
+//! Determining an episode's podcast (show): album tag + rules from `podcasts.toml`.
 //!
 //! Order:
 //! 1. file name prefix from the rules (the longest wins): manual configuration
 //!    beats tags;
 //! 2. album tag (TALB) matching a rule's `name` or `tags`;
 //! 3. album tag as is;
-//! 4. otherwise there is no program (the episode goes to the «Без программы» playlist).
+//! 4. otherwise there is no podcast (the episode goes to the «Без подкаста» playlist).
 //!
 //! Names are compared in normalized form: letters and digits only, lowercase,
-//! so `Russia Goes Clubbing` and `russia goes clubbing` are the same program.
+//! so `Russia Goes Clubbing` and `russia goes clubbing` are the same podcast.
 
-use crate::catalog::{Podcast, Program};
+use crate::catalog::{Folder, Podcast};
 use crate::text::{slugify, unique_slug};
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-/// Playlist slug for episodes without a program.
-pub const NO_PROGRAM_SLUG: &str = "bez-programmy";
+/// Playlist slug for episodes without a podcast.
+pub const NO_PODCAST_SLUG: &str = "bez-podkasta";
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProgramsFile {
+struct RulesFile {
     #[serde(default)]
-    program: Vec<Rule>,
+    podcast: Vec<Rule>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Rule {
-    /// Canonical program name.
+    /// Canonical podcast name.
     name: String,
     /// Spellings found in the album tag.
     #[serde(default)]
@@ -42,21 +42,21 @@ struct Rule {
 
 /// Rules ready to apply.
 #[derive(Debug, Default)]
-pub struct Programs {
+pub struct PodcastRules {
     /// Normalized tag → canonical name.
     by_tag: HashMap<String, String>,
     /// (lowercase prefix, name), sorted by prefix length, longest first.
     by_file: Vec<(String, String)>,
 }
 
-impl Programs {
+impl PodcastRules {
     /// Loads the rules. A missing file is not an error: only tags are used then.
     pub fn load(path: &Path) -> Result<Self> {
         let text = match std::fs::read_to_string(path) {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 eprintln!(
-                    "предупреждение: {} не найден, программы берутся только из тегов",
+                    "предупреждение: {} не найден, подкасты берутся только из тегов",
                     path.display()
                 );
                 return Ok(Self::default());
@@ -69,12 +69,12 @@ impl Programs {
     }
 
     pub fn parse(text: &str) -> Result<Self> {
-        let file: ProgramsFile = toml::from_str(text)?;
+        let file: RulesFile = toml::from_str(text)?;
         let mut by_tag = HashMap::new();
         let mut by_file: Vec<(String, String)> = Vec::new();
-        for rule in file.program {
+        for rule in file.podcast {
             let Some(name) = crate::text::clean(&rule.name) else {
-                bail!("пустое название программы");
+                bail!("пустое название подкаста");
             };
             for tag in std::iter::once(&rule.name).chain(&rule.tags) {
                 let key = normalize(tag);
@@ -102,7 +102,7 @@ impl Programs {
         Ok(Self { by_tag, by_file })
     }
 
-    /// Determines the program from the file name and the (cleaned) album tag.
+    /// Determines the podcast from the file name and the (cleaned) album tag.
     pub fn resolve(&self, file_name: &str, album_tag: Option<&str>) -> Option<String> {
         let lower = file_name.to_lowercase();
         if let Some((_, name)) = self
@@ -122,33 +122,33 @@ impl Programs {
     }
 }
 
-impl Programs {
-    /// Whether the normalized string `norm` matches `program`:
+impl PodcastRules {
+    /// Whether the normalized string `norm` matches `podcast`:
     /// equals its name or one of the variants from `tags`.
-    pub fn matches(&self, program: &str, norm: &str) -> bool {
+    pub fn matches(&self, podcast: &str, norm: &str) -> bool {
         !norm.is_empty()
-            && (normalize(program) == norm || self.by_tag.get(norm).is_some_and(|p| p == program))
+            && (normalize(podcast) == norm || self.by_tag.get(norm).is_some_and(|p| p == podcast))
     }
 }
 
-/// Groups the episodes of all podcasts by program.
+/// Groups the episodes of all folders by podcast.
 ///
 /// Names differing only in case and punctuation are merged into one
-/// program spelled as in the first episode seen; `Episode::program`
-/// is rewritten to that spelling. Programs are sorted by name ignoring
-/// case; episodes without a program form a separate group at the end. Within a group
+/// podcast spelled as in the first episode seen; `Episode::podcast`
+/// is rewritten to that spelling. Podcasts are sorted by name ignoring
+/// case; episodes without a podcast form a separate group at the end. Within a group
 /// episodes keep their catalog order.
-pub fn group(podcasts: &mut [Podcast]) -> Vec<Program> {
+pub fn group(folders: &mut [Folder]) -> Vec<Podcast> {
     // (name, episode paths, total duration)
     let mut groups: Vec<(Option<String>, Vec<String>, u64)> = Vec::new();
     let mut index: HashMap<Option<String>, usize> = HashMap::new();
-    for ep in podcasts.iter_mut().flat_map(|p| &mut p.episodes) {
-        let key = ep.program.as_deref().map(normalize);
+    for ep in folders.iter_mut().flat_map(|p| &mut p.episodes) {
+        let key = ep.podcast.as_deref().map(normalize);
         let i = *index.entry(key).or_insert_with(|| {
-            groups.push((ep.program.clone(), Vec::new(), 0));
+            groups.push((ep.podcast.clone(), Vec::new(), 0));
             groups.len() - 1
         });
-        ep.program.clone_from(&groups[i].0);
+        ep.podcast.clone_from(&groups[i].0);
         groups[i].1.push(ep.path.clone());
         groups[i].2 += ep.duration_secs.unwrap_or(0);
     }
@@ -156,16 +156,16 @@ pub fn group(podcasts: &mut [Podcast]) -> Vec<Program> {
         (name.is_none(), name.as_deref().map(str::to_lowercase))
     });
 
-    let mut used = HashSet::from([NO_PROGRAM_SLUG.to_owned()]);
+    let mut used = HashSet::from([NO_PODCAST_SLUG.to_owned()]);
     groups
         .into_iter()
         .map(|(name, episodes, total)| {
             let slug = match &name {
                 Some(n) => unique_slug(&slugify(n), &mut used),
-                None => NO_PROGRAM_SLUG.to_owned(),
+                None => NO_PODCAST_SLUG.to_owned(),
             };
-            Program {
-                playlist: format!("playlists/program/{slug}.m3u8"),
+            Podcast {
+                playlist: format!("playlists/podcast/{slug}.m3u8"),
                 slug,
                 name,
                 total_duration_secs: total,
@@ -189,11 +189,11 @@ mod tests {
     use crate::catalog::Episode;
 
     const RULES: &str = r#"
-        [[program]]
+        [[podcast]]
         name = "Preview"
         files = ["lutique-"]
 
-        [[program]]
+        [[podcast]]
         name = "Preview Radioshow"
         tags = ["Preview Radio Show"]
         files = ["lutique-preview-radioshow"]
@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     fn resolve_order() {
-        let p = Programs::parse(RULES).unwrap();
+        let p = PodcastRules::parse(RULES).unwrap();
         // The longest prefix wins.
         assert_eq!(
             p.resolve("Lutique-Preview-Radioshow-1.mp3", None)
@@ -227,25 +227,26 @@ mod tests {
     #[test]
     fn conflicts_rejected() {
         let dup = r#"
-            [[program]]
+            [[podcast]]
             name = "A"
             files = ["x"]
-            [[program]]
+            [[podcast]]
             name = "B"
             files = ["X"]
         "#;
-        assert!(Programs::parse(dup).is_err());
-        assert!(Programs::parse("[[program]]\nname = \"A\"\nfoo = 1").is_err());
+        assert!(PodcastRules::parse(dup).is_err());
+        assert!(PodcastRules::parse("[[podcast]]\nname = \"A\"\nfoo = 1").is_err());
     }
 
-    fn ep(path: &str, program: Option<&str>) -> Episode {
+    fn ep(path: &str, podcast: Option<&str>) -> Episode {
         Episode {
             title: path.into(),
             artist: None,
             album: None,
-            program: program.map(Into::into),
+            podcast: podcast.map(Into::into),
             duration_secs: None,
             audio: None,
+            date: None,
             size: 0,
             path: path.into(),
             url: String::new(),
@@ -255,7 +256,7 @@ mod tests {
 
     #[test]
     fn group_merges_spellings() {
-        let mut podcasts = vec![Podcast {
+        let mut folders = vec![Folder {
             slug: "p".into(),
             title: "P".into(),
             dir: "P".into(),
@@ -268,13 +269,13 @@ mod tests {
                 ep("d", Some("Zebra")),
             ],
         }];
-        let g = group(&mut podcasts);
+        let g = group(&mut folders);
         let names: Vec<_> = g.iter().map(|p| p.name.as_deref()).collect();
         assert_eq!(names, [Some("Russia Goes Clubbing"), Some("Zebra"), None]);
         assert_eq!(g[0].episodes, ["a", "c"]);
-        assert_eq!(g[2].slug, NO_PROGRAM_SLUG);
+        assert_eq!(g[2].slug, NO_PODCAST_SLUG);
         assert_eq!(
-            podcasts[0].episodes[2].program.as_deref(),
+            folders[0].episodes[2].podcast.as_deref(),
             Some("Russia Goes Clubbing")
         );
     }

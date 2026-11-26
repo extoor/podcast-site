@@ -1,0 +1,51 @@
+# HTTP(S) server for the site: generated pages, playlists and audio.
+#
+# Dev (from the repository root):
+#   caddy run --config caddy/Caddyfile --adapter caddyfile
+# Production: set SITE_ADDRESS to the domain (Caddy then gets a certificate itself),
+# BUILD_DIR and MEDIA_DIR to the mounted directories.
+#
+# Range requests (seeking in players) are supported by file_server out of the box.
+{
+	# No admin API: the config is static, nothing should be able to change it at runtime.
+	admin off
+}
+
+{$SITE_ADDRESS::8080} {
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+		# Pages carry their own inline styles and scripts; only fonts come from Google.
+		Content-Security-Policy "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		-Server
+	}
+
+	# Audio library (read-only mount). Only audio: the library may hold other files
+	# (there is an index.html), and HTML served from our origin could run scripts.
+	handle_path /media/* {
+		@not_audio not path *.mp3 *.MP3
+		respond @not_audio 404
+		root * {$MEDIA_DIR:/media/podcasts}
+		file_server {
+			hide .*
+		}
+	}
+
+	# Playlists: as attachments, otherwise Chrome and Safari open .m3u8 in their
+	# built-in HLS player instead of downloading.
+	handle_path /playlists/* {
+		root * {$BUILD_DIR:build}/playlists
+		header Content-Disposition attachment
+		file_server
+	}
+
+	# Generated pages.
+	handle {
+		root * {$BUILD_DIR:build}/www
+		encode zstd gzip
+		file_server {
+			hide .*
+		}
+	}
+}
