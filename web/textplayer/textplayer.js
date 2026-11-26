@@ -19,6 +19,7 @@
     item: "li",                          // closest element that gets `playingClass`
     playingClass: "tp-playing",
     width: 62,                           // inner width of the window, in columns
+    bufferTarget: 60,                    // seconds buffered ahead that count as a full "Buf"
   };
 
   // Look of the window. Every color and the font can be changed with CSS variables
@@ -116,7 +117,9 @@
     const sep = () => `<span class="tp-fr">╟${"─".repeat(W)}╢</span>`;
     const L = (s) => seg(s, "tp-lb"), V = (s) => seg(s, "tp-va");
     // Key help is plain text: keyboard only, the mouse does nothing here.
-    const key = (k, label) => seg(`${k}:${label} `, "tp-help");
+    // "tp-st": arrow glyphs may come from a fallback font; keep them out of the line height
+    const keys = (...pairs) => pairs.map(([k, label]) => seg(`${k}:${label}`, "tp-help tp-st"))
+      .flatMap((s, i) => (i ? [seg(" | ", "tp-fr"), s] : [s]));   // separators in the frame color
     const itemOf = (a) => (o.item && a.closest(o.item)) || a;
 
     function render() {
@@ -124,9 +127,23 @@
       const dur = audio.duration, size = Number(a.size);
       const kbps = size > 0 && isFinite(dur) && dur > 0 ? Math.round((size * 8) / dur / 1000) : null;
       const db = audio.volume > 0 ? Math.round(20 * Math.log10(audio.volume)) + "dB" : "mute";
-      let loaded = 0;
-      for (let i = 0; i < audio.buffered.length; i++) loaded = Math.max(loaded, audio.buffered.end(i));
-      const buf = isFinite(dur) && dur > 0 ? loaded / dur : 0;
+      // Buffer health: audio buffered ahead of the playhead. Browsers do not download
+      // the whole file, they keep a window ahead (Chrome: about 1.5 minutes), so the
+      // share of the file loaded so far would only follow the playhead.
+      const now = audio.currentTime;
+      let ahead = 0;
+      for (let i = 0; i < audio.buffered.length; i++) {
+        if (audio.buffered.start(i) <= now + 0.5 && now <= audio.buffered.end(i)) {
+          ahead = audio.buffered.end(i) - now;
+        }
+      }
+      // Not downloading while it has enough to play: the browser holds all it wants
+      // (it suspends at its own limit, and near the end there is nothing left to get).
+      const idle = audio.networkState === audio.NETWORK_IDLE && audio.readyState >= audio.HAVE_FUTURE_DATA;
+      const buf = idle ? 1 : Math.min(1, ahead / o.bufferTarget);
+      // Near the end browsers report little buffered ahead even when all of it is
+      // there: with nothing left to download, what is ahead is the rest of the track.
+      if (idle && isFinite(dur)) ahead = Math.max(ahead, Math.min(dur - now, o.bufferTarget));
 
       const title = ` ${fit(o.title, W - 4)} `;
       const left = Math.floor((W - title.length) / 2);
@@ -152,9 +169,9 @@
         row(seg(audio.paused ? "║" : "►", "tp-lb tp-st"), L(" " + ct + " "),
             seg(bar(audio.currentTime / dur, pw), "tp-lb tp-slider", 'data-act="seek"'), L(" " + dt)),
         row(),
-        row(L("Buf "), seg(bar(buf, 12), "tp-lb"), V(" " + Math.round(buf * 100) + "%")),
+        row(L("Buf "), seg(bar(buf, 12), "tp-lb"), V(` ${Math.round(buf * 100)}%`), seg(" | ", "tp-fr"), V(time(ahead))),   // same format as the progress line
         sep(),
-        row(key("Spc", "next"), key("P", "prev"), key("<>", "seek"), key("S", "pause"), key("+-", "vol"), key("Esc", "exit")),
+                row(...keys(["Spc", "next"], ["P", "prev"], ["←→↑↓", "seek"], ["S", "pause"], ["+-", "vol"], ["Esc", "exit"])),
         `<span class="tp-fr">╚${"═".repeat(W)}╝</span>`,
       ].join("\n");
     }
@@ -190,7 +207,7 @@
       open(i);
     }));
 
-    for (const ev of ["timeupdate", "progress", "volumechange", "play", "pause", "durationchange", "loadedmetadata"]) {
+    for (const ev of ["timeupdate", "progress", "suspend", "waiting", "volumechange", "play", "pause", "durationchange", "loadedmetadata"]) {
       audio.addEventListener(ev, () => { if (!overlay.hidden) render(); });
     }
     audio.addEventListener("ended", () => { if (cur + 1 < links.length) open(cur + 1); });
@@ -227,8 +244,9 @@
       if (overlay.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
       // e.code, so the keys work in any keyboard layout
       const act = {
-        Space: () => open(cur + 1), KeyP: () => open(cur - 1), KeyS: toggle, Escape: close,
+        Space: () => open(cur + 1), KeyP: () => open(cur - 1), KeyS: toggle, Escape: close, Backspace: close,
         Comma: () => seekBy(-10), Period: () => seekBy(10), ArrowLeft: () => seekBy(-10), ArrowRight: () => seekBy(10),
+        ArrowUp: () => seekBy(60), ArrowDown: () => seekBy(-60),   // bigger steps, as in mpv
         Equal: () => volBy(1 / 16), NumpadAdd: () => volBy(1 / 16), Minus: () => volBy(-1 / 16), NumpadSubtract: () => volBy(-1 / 16),
       }[e.code];
       if (act) { e.preventDefault(); act(); }

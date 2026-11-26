@@ -20,9 +20,9 @@ One file, no dependencies; it adds its own styles.
 ║                                                              ║
 ║ ► 54:03 ████████████████████████████████████████░░░░░ 59:59  ║
 ║                                                              ║
-║ Buf ███████████░ 94%                                         ║
+║ Buf ████████████ 100% | 01:24                                ║
 ╟──────────────────────────────────────────────────────────────╢
-║ Spc:next P:prev <>:seek S:pause +-:vol Esc:exit              ║
+║ Spc:next | P:prev | ←→↑↓:seek | S:pause | +-:vol | Esc:exit  ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
 
@@ -76,13 +76,14 @@ beforehand (in podcast-site this is done by `podscan`, module `mpeg.rs`).
 | `item`         | `"li"`                  | closest ancestor of the link that gets `playingClass` (the link itself if there is none) |
 | `playingClass` | `"tp-playing"`          | class of the current track, to highlight it in the list |
 | `width`        | `62`                    | inner width of the window, in characters |
+| `bufferTarget` | `60`                    | seconds buffered ahead of the playhead shown as a full `Buf` bar |
 
 `attach` returns `{ open(index), close(), audio }`, or `null` if there are no links.
 
 ## Controls
 
-- Keys: Space — next track, `P` — previous, `<` `>` or `←` `→` — seek 10 seconds,
-  `S` — pause, `+` `-` — volume, `Esc` — close. Keys are matched by `e.code`, so they
+- Keys: Space — next track, `P` — previous, `<` `>` or `←` `→` — seek 10 seconds, `↑` `↓` — seek a minute,
+  `S` — pause, `+` `-` — volume, `Esc` or Backspace — close. Keys are matched by `e.code`, so they
   work in any keyboard layout.
 - Mouse: click or drag on the progress and volume bars; a click outside the window closes it.
   The key help line is plain text and does not react to the mouse.
