@@ -15,7 +15,8 @@
 //!
 //! If no program is found in the name, the whole name is the artist and the
 //! title becomes the program name. The artist's case is later refined from the tags
-//! of other files (see `scan`).
+//! of other files, and the title and artist are adjusted to match tagged episodes
+//! of the same program (see `scan`).
 
 use crate::programs::{Programs, normalize};
 
@@ -24,6 +25,9 @@ use crate::programs::{Programs, normalize};
 pub struct Parsed {
     pub artist: Option<String>,
     pub title: String,
+    /// The part of the title after the program name (episode number etc.),
+    /// when the title is `<program> <tail>`.
+    pub tail: Option<String>,
 }
 
 /// Parses a file name without extension. `program` is the already determined program.
@@ -33,6 +37,7 @@ pub fn parse(stem: &str, program: Option<&str>, programs: &Programs) -> Parsed {
         return Parsed {
             artist: None,
             title: join(&words).unwrap_or_else(|| stem.to_owned()),
+            tail: None,
         };
     };
 
@@ -45,6 +50,7 @@ pub fn parse(stem: &str, program: Option<&str>, programs: &Programs) -> Parsed {
         return Parsed {
             artist: join(&words),
             title: program.to_owned(),
+            tail: None,
         };
     };
     let (before, after) = (&words[..i], &words[j..]);
@@ -66,13 +72,15 @@ pub fn parse(stem: &str, program: Option<&str>, programs: &Programs) -> Parsed {
         // `kiss-fm-dance-marafon-2003`, `kissfm-top-2016-…`: the tail is the episode number.
         (&[], after)
     };
-    let title = match join(tail) {
+    let tail = join(tail);
+    let title = match &tail {
         Some(t) => format!("{program} {t}"),
         None => program.to_owned(),
     };
     Parsed {
         artist: join(artist),
         title,
+        tail,
     }
 }
 

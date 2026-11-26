@@ -57,8 +57,12 @@ pub struct Episode {
     pub album: Option<String>,
     /// Program after applying the `programs.toml` rules (see `podscan::programs`).
     pub program: Option<String>,
-    /// Duration from the TLEN tag; `None` if there is no tag.
+    /// Duration: from the MPEG stream (Xing/VBRI frame count or CBR size), otherwise
+    /// from the TLEN tag if plausible; `None` if unknown.
     pub duration_secs: Option<u64>,
+    /// MPEG stream info from the first frame; `None` if no frame was found.
+    #[serde(default)]
+    pub audio: Option<AudioInfo>,
     /// File size in bytes.
     pub size: u64,
     /// Path relative to the media root (`/` as separator).
@@ -68,4 +72,19 @@ pub struct Episode {
     /// `true` if the title comes from a tag; `false` if title and artist
     /// were parsed from the file name.
     pub tagged: bool,
+}
+
+/// MPEG audio stream parameters (see `podscan::mpeg`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioInfo {
+    /// `MPEG-1`, `MPEG-2` or `MPEG-2.5`.
+    pub version: String,
+    /// Layer: 1, 2 or 3.
+    pub layer: u8,
+    /// Bitrate, kbit/s; for VBR the average over the file.
+    pub bitrate_kbps: u32,
+    pub vbr: bool,
+    pub sample_rate_hz: u32,
+    /// `Stereo`, `Joint Stereo`, `Dual Channel` or `Mono`.
+    pub channel_mode: String,
 }

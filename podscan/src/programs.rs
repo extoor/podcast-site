@@ -245,6 +245,7 @@ mod tests {
             album: None,
             program: program.map(Into::into),
             duration_secs: None,
+            audio: None,
             size: 0,
             path: path.into(),
             url: String::new(),
