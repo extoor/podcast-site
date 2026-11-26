@@ -1,0 +1,44 @@
+{
+  "name": "podcast-site",
+  "image": "mcr.microsoft.com/devcontainers/rust:1",
+
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
+  
+  "overrideFeatureInstallOrder": [
+    "ghcr.io/devcontainers/features/node",
+    "ghcr.io/anthropics/devcontainer-features/claude-code"
+  ],
+
+  "mounts": [
+    "source=/media/podcasts,target=/media/podcasts,type=bind,readonly,bind-propagation=rslave",
+    "source=podcast-site-claude,target=/home/vscode/.claude,type=volume",
+    "source=podcast-site-cargo,target=/usr/local/cargo/registry,type=volume"
+  ],
+
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+  },
+
+  "forwardPorts": [7070, 8080],
+  "portsAttributes": {
+    "7070": { "label": "Gopher (dev)" },
+    "8080": { "label": "HTTP (dev)" }
+  },
+
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.claude /usr/local/cargo/registry && cargo install cargo-audit cargo-deny --locked && gpg --import .devcontainer/signing-key.asc && echo 'E1D456A80E71B7AF640F9B5A9D5A6C199F1B5404:6:' | gpg --import-ownertrust",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "vadimcn.vscode-lldb"
+      ]
+    }
+  },
+
+  "remoteUser": "vscode"
+}

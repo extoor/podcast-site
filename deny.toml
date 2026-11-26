@@ -1,0 +1,23 @@
+# Dependency policy for `cargo deny check`.
+
+[graph]
+all-features = false
+
+[advisories]
+# Any known vulnerability or yanked version is an error.
+yanked = "deny"
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "0BSD", "Unlicense", "Zlib", "Unicode-3.0"]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace crates reference each other by path; that is not a wildcard.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

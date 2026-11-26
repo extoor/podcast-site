@@ -1,0 +1,14 @@
+[package]
+name = "podscan"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Podcast library scanner: ID3 → M3U8 + catalog.json"
+
+[dependencies]
+anyhow = "1.0.105"
+id3 = { version = "1.17.4", default-features = false }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = { version = "1.2.3", default-features = false, features = ["parse", "serde"] }
