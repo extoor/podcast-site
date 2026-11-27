@@ -119,7 +119,7 @@ musl-файлы (линкует `rust-lld` из тулчейна Rust; все з
   `media.type: existingClaim`;
 - `gopherd` получает свой адрес через Multus (`gopher.podAnnotations`) и слушает порт 70
   без root (sysctl пода `net.ipv4.ip_unprivileged_port_start=0`); меню ссылаются на
-  `gopher.host` (по умолчанию `gopher.<domain>`);
+  `gopher.host` (по умолчанию `domain` — то же имя, что у веба);
 - все поды проходят Pod Security «restricted»; `networkPolicy.enabled` запрещает исходящие
   соединения и пускает к веб-поду только Traefik.
 
@@ -162,7 +162,7 @@ GitHub Actions (`.github/workflows/`):
 
 Работает: сканирование, плейлисты, меню и сервер Gopher, HTML-страницы, плеер, Caddy
 в разработке, multi-arch rootless-образы в GHCR, Helm-чарт. Дальше: первый деплой в
-кластер. Открыт вопрос: домен сайта.
+кластер.
 
 ## Лицензия
 

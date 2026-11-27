@@ -168,7 +168,7 @@
    еженедельная пересборка (свежий Caddy). Dependabot — actions, cargo, базовые образы.
    Docker в dev-контейнере — для локальной проверки сборки.
 5. [~] HTTPS через Caddy с Range-запросами: `caddy/Caddyfile` готов и проверен в dev (Range,
-       attachment для плейлистов, CSP); осталось — домен и сертификат (`SITE_ADDRESS`).
+       attachment для плейлистов, CSP); в кластере TLS делают Traefik и cert-manager.
        Caddy всегда последней версии: в dev-контейнере — из официального apt-репозитория Caddy,
        в образе `web` — `caddy:2-alpine` со сборкой `--pull` и регулярной пересборкой.
 6. [~] Docker-образы (GitHub Actions + GHCR, см. выше): `docker/Dockerfile`, цели `generator` (`sitegen --scan`), `gopherd`, `web`
@@ -184,7 +184,7 @@
        - деплой — Helm-чарт в репозитории, ArgoCD (`deploy/argocd/application.yaml`), по желанию
          kustomize поверх чарта (`deploy/kustomize/`, `--enable-helm`); образы — GHCR;
        - домен — только `domain` в values (+ `extraDomains`): из него Certificate, IngressRoute,
-         base URL плейлистов и `gopher.<domain>` по умолчанию; нигде не дублируется;
+         base URL плейлистов и `gopher.host` по умолчанию; нигде не дублируется;
        - аудио — rclone CSI-драйвер veloxpack (`rclone.csi.veloxpack.io`, проверен в кластере):
          PV `crypt:music/Podcasts`, ReadOnlyMany, конфиг — Secret с ключом `configData` (именно
          так, не `rclone.conf`): секции `[crypt]` и S3 под ней; fsGroup read-only тома kubelet
@@ -196,13 +196,16 @@
          + cert-manager Certificate (ClusterIssuer
          zerossl-production), Caddy внутри на 8080;
        - Gopher — Multus macvlan со своим IP в DMZ (аннотация `k8s.v1.cni.cncf.io/networks`,
-         например `<gopher-ip>`), gopherd слушает 70 без root через sysctl
-         `net.ipv4.ip_unprivileged_port_start=0`; в меню — DNS-имя этого IP и порт 70;
+         сеть `macvlan-dmz-static`, интерфейс `dmz`), gopherd слушает 70 без root через sysctl
+         `net.ipv4.ip_unprivileged_port_start=0`; в меню — то же имя, что у веба, порт 70:
+         маршрутизатор переадресует 70 публичного адреса на IP пода;
+       - домен — `fm.tuhu.io` (веб и Gopher). Реальные значения (IP пода и т. п.) — не в git:
+         `deploy/local/` в `.gitignore`;
        - Pod Security «restricted»: runAsNonRoot, readOnlyRootFilesystem, drop ALL, seccomp.
 
 ## Открытые вопросы
 
-- Домен сайта.
+- ~~Домен сайта~~ — `fm.tuhu.io`, один для веба и Gopher.
 - ~~Есть ли в каталоге не-MP3 файлы~~ — нет (только MP3 и один `index.html`), остаёмся на `id3`.
 - ~~Длительность~~ — у файлов KissFM TLEN мусорный (≈ 27 ч у всех), теперь она берётся из
   MPEG-заголовка: известна у всех 291 файла (все MPEG-1 Layer III CBR, 192–320 кбит/с).

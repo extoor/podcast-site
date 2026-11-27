@@ -29,3 +29,6 @@ kubeconfig
 !**/templates/*secret*.yaml
 *.tfstate
 *.tfstate.*
+
+# real deployment values (internal addresses): kept out of the public repository
+/deploy/local/

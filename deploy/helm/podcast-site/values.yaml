@@ -43,8 +43,8 @@ ingressRoute:
 # --- gopherd: own IP in the DMZ (Multus macvlan) ---------------------------------------
 gopher:
   enabled: true
-  # The name in every Gopher menu line; default "gopher.<domain>". Point its DNS record
-  # at the pod's own address (podAnnotations below).
+  # The name in every Gopher menu line; default: domain (the same name for the web and
+  # Gopher: port 70 of its public address goes to the pod's own address, podAnnotations).
   host: ""
   port: 70
   maxConns: 256

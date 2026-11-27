@@ -4,7 +4,7 @@ domain: podcasts.example.org        # the one place the domain is written
 site:
   storageClass: openebs-hostpath
 gopher:
-  host: ""                          # default gopher.<domain>
+  host: ""                          # default: domain
   podAnnotations: {}
   #  k8s.v1.cni.cncf.io/networks: |
   #    [{"name": "macvlan-dmz", "namespace": "default", "ips": ["<gopher-ip>/24"]}]
