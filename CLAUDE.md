@@ -175,20 +175,20 @@
    (`ghcr.io/<owner>/<repo>/{generator,gopherd,web}`) из main и тегов `v*`, PR — только сборка,
    еженедельная пересборка (свежий Caddy). Dependabot — actions, cargo, базовые образы.
    Docker в dev-контейнере — для локальной проверки сборки.
-5. [~] HTTPS через Caddy с Range-запросами: `caddy/Caddyfile` готов и проверен в dev (Range,
+5. [x] HTTPS через Caddy с Range-запросами: `caddy/Caddyfile` готов и проверен в dev (Range,
        attachment для плейлистов, CSP); в кластере TLS делают Traefik и cert-manager.
        Caddy всегда последней версии: в dev-контейнере — из официального apt-репозитория Caddy,
        в образе `web` — `caddy:2-alpine` со сборкой `--pull` и регулярной пересборкой.
-6. [~] Docker-образы (GitHub Actions + GHCR, см. выше): `docker/Dockerfile`, цели `generator` (`sitegen --scan`), `gopherd`, `web`
+6. [x] Docker-образы (GitHub Actions + GHCR, см. выше): `docker/Dockerfile`, цели `generator` (`sitegen --scan`), `gopherd`, `web`
        (Caddy + `caddy/Caddyfile`, без file capability — иначе не стартует при drop ALL);
        multi-arch amd64 + arm64: Rust-этап на `$BUILDPLATFORM` кросс-компилирует статический
        musl через `rust-lld` (без Zig и C-тулчейна), рантайм `distroless/static:nonroot`.
        Все образы rootless: UID/GID 65532 числом (иначе runAsNonRoot в Kubernetes не проверит),
        без capabilities, корневая ФС только на чтение. В dev-контейнере свой Docker
        (фича docker-in-docker) для `docker buildx`. Проверка живости — `gopherd --check <адрес>`.
-7. [~] Kubernetes (radxa — только разработка, работает всё в кластере). Helm-чарт
-       `deploy/helm/podcast-site` готов (проверка в CI — job `helm chart`: lint + kubeconform);
-       осталось — первый деплой. Решено:
+7. [x] Kubernetes (radxa — только разработка, работает всё в кластере). Helm-чарт
+       `deploy/helm/podcast-site` (проверка в CI — job `helm chart`: lint + kubeconform);
+       развёрнут 27.11.2026: веб по HTTPS, Gopher снаружи, аудио из S3 через rclone. Решено:
        - деплой — Helm-чарт в репозитории, ArgoCD (`deploy/argocd/application.yaml`), по желанию
          kustomize поверх чарта (`deploy/kustomize/`, `--enable-helm`); образы — GHCR;
        - домен — только `domain` в values (+ `extraDomains`): из него Certificate, IngressRoute,

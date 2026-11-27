@@ -193,7 +193,7 @@
             L("Size: "), V(size > 0 ? `${Math.round(size / 1e6)} MB` : "")),
         sep(),
         // stream info from the page (e.g. parsed from the MPEG header); else an estimate
-        row(L("Type:    "), V(fit(a.format || (kbps ? `${kbps} kbps` : ""), W - 11))),
+        row(L("Codec:   "), V(fit(a.format || (kbps ? `${kbps} kbps` : ""), W - 11))),
         // decoder left, buffer (time buffered ahead, as on the progress line) in the
         // middle, volume right: the free columns are shared out between them
         row(...spread(
