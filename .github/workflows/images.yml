@@ -54,6 +54,7 @@ jobs:
           context: .
           file: docker/Dockerfile
           target: ${{ matrix.target }}
+          build-args: GIT_COMMIT=${{ github.sha }}   # the site's version (sitegen/build.rs)
           platforms: linux/amd64,linux/arm64
           pull: true             # always the newest caddy:2-alpine and base images
           push: ${{ github.event_name != 'pull_request' }}
