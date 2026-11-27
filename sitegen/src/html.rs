@@ -17,7 +17,6 @@ const TEXTPLAYER_JS: &str = include_str!("../../web/textplayer/textplayer.js");
 const KEYNAV_JS: &str = include_str!("../../web/keynav/keynav.js");
 
 const SITE_TITLE: &str = "KISS FM PODCASTS";
-const NO_PODCAST: &str = "Без подкаста";
 
 const CSS: &str = r#"
 :root {
@@ -62,6 +61,11 @@ a:hover, a:focus-visible { background: var(--link); color: var(--bg); outline: n
 a.m3u { color: var(--dim); margin-left: 1ch; flex: none; }
 a.m3u:hover { color: var(--bg); background: var(--dim); }
 .nav { color: var(--dim); margin: 0 0 1rem; }
+.navrow { display: flex; justify-content: space-between; align-items: baseline; gap: 2ch; margin: 0 0 1rem; }
+.navrow .nav, .navrow .lead { margin: 0; }
+.lang { color: var(--dim); white-space: nowrap; }
+.lang .cur { color: var(--hi); }
+.lang .sep { white-space: pre; }
 .lead { margin: 0 0 .5rem; }
 footer { margin-top: 3rem; color: var(--dim); font-size: 13px; }
 .blink { animation: blink 1s steps(1) infinite; }
@@ -118,10 +122,75 @@ fn media_url(ep: &Episode) -> String {
     format!("/media/{}", encode_path(&ep.path))
 }
 
+/// A language of the site: where its pages live and every text they show.
+pub struct Lang {
+    /// `lang` attribute and the switcher label.
+    pub code: &'static str,
+    pub label: &'static str,
+    /// URL prefix: "" for the main language, "/ru" etc. for the others.
+    pub prefix: &'static str,
+    all_playlist: &'static str,
+    podcasts: &'static str,
+    folders: &'static str,
+    no_podcast: &'static str,
+    back: &'static str,
+    download: &'static str,
+    keys: &'static str,
+    gopher: &'static str,
+    players: &'static str,
+}
+
+/// English is the main language (the site root); Ukrainian and Russian under /ua, /ru.
+/// The order here is the order of the language switcher.
+pub const LANGS: [Lang; 3] = [
+    Lang {
+        code: "en",
+        label: "EN",
+        prefix: "",
+        all_playlist: "All episodes in one playlist [m3u]",
+        podcasts: "PODCASTS",
+        folders: "FOLDERS",
+        no_podcast: "No podcast",
+        back: "◄ all podcasts",
+        download: "Download the playlist [m3u]",
+        keys: "[↑↓] select  [Enter] open / play  [Backspace] back",
+        gopher: "also over Gopher",
+        players: "M3U playlists open in VLC, foobar2000, mpv",
+    },
+    Lang {
+        code: "uk", // ISO 639-1 for Ukrainian (UA is the country)
+        label: "UA",
+        prefix: "/ua",
+        all_playlist: "Усі епізоди одним плейлистом [m3u]",
+        podcasts: "ПОДКАСТИ",
+        folders: "ПАПКИ",
+        no_podcast: "Без подкасту",
+        back: "◄ усі подкасти",
+        download: "Завантажити плейлист [m3u]",
+        keys: "[↑↓] вибір  [Enter] відкрити / грати  [Backspace] назад",
+        gopher: "також через Gopher",
+        players: "плейлисти M3U відкриваються у VLC, foobar2000, mpv",
+    },
+    Lang {
+        code: "ru",
+        label: "RU",
+        prefix: "/ru",
+        all_playlist: "Все эпизоды одним плейлистом [m3u]",
+        podcasts: "ПОДКАСТЫ",
+        folders: "ПАПКИ",
+        no_podcast: "Без подкаста",
+        back: "◄ все подкасты",
+        download: "Скачать плейлист [m3u]",
+        keys: "[↑↓] выбор  [Enter] открыть / играть  [Backspace] назад",
+        gopher: "также по Gopher",
+        players: "плейлисты M3U открываются в VLC, foobar2000, mpv",
+    },
+];
+
 /// Pages: path relative to the www root → contents.
 pub type Files = Vec<(String, String)>;
 
-/// Builds all pages. `gopher` is shown in the footer.
+/// Builds all pages in every language. `gopher` is shown in the footer.
 pub fn pages(catalog: &Catalog, gopher: &Server) -> Result<Files> {
     let layout = Layout::new(gopher)?;
     let episodes: HashMap<&str, &Episode> = catalog
@@ -132,60 +201,62 @@ pub fn pages(catalog: &Catalog, gopher: &Server) -> Result<Files> {
         .collect();
 
     let mut files = Vec::new();
+    for lang in &LANGS {
+        // the directory of this language's pages: "" or "ru/"
+        let dir = lang.prefix.trim_start_matches('/');
+        let dir = if dir.is_empty() {
+            String::new()
+        } else {
+            format!("{dir}/")
+        };
 
-    // Index.
-    let mut body = String::new();
-    let _ = write!(
-        body,
-        r#"<p class="lead">♫ <a href="/{}" download>Все эпизоды одним плейлистом [m3u]</a> <span class="meta">({})</span></p>"#,
-        esc(&catalog.all_playlist),
-        episodes.len()
-    );
-    body.push_str("<h2>ПОДКАСТЫ</h2><ul>");
-    for p in &catalog.podcasts {
-        let name = p.name.as_deref().unwrap_or(NO_PODCAST);
-        list_row(
-            &mut body,
-            &format!("/podcast/{}/", p.slug),
-            name,
-            p.episodes.len(),
-            &p.playlist,
+        // Index.
+        // The playlist of all episodes shares the row with the language switcher.
+        let mut body = String::new();
+        let _ = write!(
+            body,
+            r#"<div class="navrow"><p class="lead">♫ <a href="/{}" download>{}</a> <span class="meta">({})</span></p><!--nav--></div>"#,
+            esc(&catalog.all_playlist),
+            esc(lang.all_playlist),
+            episodes.len()
         );
-    }
-    body.push_str("</ul><h2>ПАПКИ</h2><ul>");
-    for p in &catalog.folders {
-        list_row(
-            &mut body,
-            &format!("/dir/{}/", p.slug),
-            &p.title,
-            p.episodes.len(),
-            &p.playlist,
-        );
-    }
-    body.push_str("</ul>");
-    body.push_str(&layout.keynav);
-    body.push_str(r#"<script>KeyNav.attach({ items: "ul li > a:first-child" });</script>"#);
-    files.push(("index.html".to_owned(), layout.page(SITE_TITLE, &body)));
+        let _ = write!(body, "<h2>{}</h2><ul>", esc(lang.podcasts));
+        for p in &catalog.podcasts {
+            let name = p.name.as_deref().unwrap_or(lang.no_podcast);
+            let href = format!("{}/podcast/{}/", lang.prefix, p.slug);
+            list_row(&mut body, &href, name, p.episodes.len(), &p.playlist);
+        }
+        let _ = write!(body, "</ul><h2>{}</h2><ul>", esc(lang.folders));
+        for p in &catalog.folders {
+            let href = format!("{}/dir/{}/", lang.prefix, p.slug);
+            list_row(&mut body, &href, &p.title, p.episodes.len(), &p.playlist);
+        }
+        body.push_str("</ul>");
+        body.push_str(&layout.keynav);
+        body.push_str(r#"<script>KeyNav.attach({ items: "ul li > a:first-child" });</script>"#);
+        files.push((
+            format!("{dir}index.html"),
+            layout.page(lang, "", SITE_TITLE, &body),
+        ));
 
-    // A page per podcast (podcast) and per folder.
-    for p in &catalog.podcasts {
-        let name = p.name.as_deref().unwrap_or(NO_PODCAST);
-        let eps: Vec<&Episode> = p
-            .episodes
-            .iter()
-            .filter_map(|path| episodes.get(path.as_str()).copied())
-            .collect();
-        files.push((
-            format!("podcast/{}/index.html", p.slug),
-            layout.episode_page(name, &p.playlist, &eps),
-        ));
-    }
-    for p in &catalog.folders {
-        let eps: Vec<&Episode> = p.episodes.iter().collect();
-        files.push((
-            format!("dir/{}/index.html", p.slug),
-            layout.episode_page(&p.title, &p.playlist, &eps),
-        ));
+        // A page per podcast and per folder.
+        for p in &catalog.podcasts {
+            let name = p.name.as_deref().unwrap_or(lang.no_podcast);
+            let eps: Vec<&Episode> = p
+                .episodes
+                .iter()
+                .filter_map(|path| episodes.get(path.as_str()).copied())
+                .collect();
+            let path = format!("podcast/{}/", p.slug);
+            let page = layout.episode_page(lang, &path, name, &p.playlist, &eps);
+            files.push((format!("{dir}{path}index.html"), page));
+        }
+        for p in &catalog.folders {
+            let eps: Vec<&Episode> = p.episodes.iter().collect();
+            let path = format!("dir/{}/", p.slug);
+            let page = layout.episode_page(lang, &path, &p.title, &p.playlist, &eps);
+            files.push((format!("{dir}{path}index.html"), page));
+        }
     }
     Ok(files)
 }
@@ -201,10 +272,10 @@ fn list_row(out: &mut String, href: &str, name: &str, n: usize, playlist: &str) 
     );
 }
 
-/// The parts every page shares.
+/// The parts every page shares, whatever its language.
 struct Layout {
     banner: String,
-    footer: String,
+    gopher: String,
     textplayer: String,
     keynav: String,
 }
@@ -223,31 +294,68 @@ impl Layout {
             );
         }
         banner.push_str("</div>\n");
-        let footer = format!(
-            "<footer><span class=\"keys\">[↑↓] выбор  [Enter] открыть / играть  [Backspace] назад</span><br>\n\
-             ░▒▓ также по Gopher: gopher://{}:{}/ ▓▒░<br>\n\
-             &gt; плейлисты M3U открываются в VLC, foobar2000, mpv<span class=\"blink\">█</span></footer>",
-            esc(&gopher.host),
-            gopher.port
-        );
         Ok(Self {
             banner,
-            footer,
+            gopher: format!("gopher://{}:{}/", esc(&gopher.host), gopher.port),
             textplayer: inline_script(TEXTPLAYER_JS)?,
             keynav: inline_script(KEYNAV_JS)?,
         })
     }
 
-    fn page(&self, title: &str, body: &str) -> String {
+    /// A whole page. `path` is the page within a language ("", "podcast/x/"): the
+    /// language switcher and the hreflang links point to the same page in the others.
+    fn page(&self, lang: &Lang, path: &str, title: &str, body: &str) -> String {
+        let url = |l: &Lang| format!("{}/{path}", l.prefix);
+        let mut alternates = String::new();
+        let mut switch = String::from(r#"<nav class="lang" aria-label="Language">"#);
+        for (i, l) in LANGS.iter().enumerate() {
+            let _ = writeln!(
+                alternates,
+                r#"<link rel="alternate" hreflang="{}" href="{}">"#,
+                l.code,
+                esc(&url(l))
+            );
+            if i > 0 {
+                switch.push_str(r#"<span class="sep"> | </span>"#);
+            }
+            if l.code == lang.code {
+                let _ = write!(
+                    switch,
+                    r#"<span class="cur" aria-current="true">{}</span>"#,
+                    l.label
+                );
+            } else {
+                let _ = write!(
+                    switch,
+                    r#"<a href="{}" hreflang="{}" lang="{}">{}</a>"#,
+                    esc(&url(l)),
+                    l.code,
+                    l.code,
+                    l.label
+                );
+            }
+        }
+        switch.push_str("</nav>");
+        // The nav row under the banner: "◄ all podcasts" (sub-pages) left, languages right.
+        let body = body.replacen("<!--nav-->", &switch, 1);
+        let footer = format!(
+            "<footer><span class=\"keys\">{}</span><br>\n\
+             ░▒▓ {}: {} ▓▒░<br>\n\
+             &gt; {}<span class=\"blink\">█</span></footer>",
+            esc(lang.keys),
+            esc(lang.gopher),
+            self.gopher,
+            esc(lang.players)
+        );
         format!(
             r#"<!doctype html>
-<html lang="ru">
+<html lang="{code}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
 <title>{title}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+{alternates}<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;700&display=swap">
 <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
@@ -263,19 +371,30 @@ impl Layout {
 </body>
 </html>
 "#,
+            code = lang.code,
             title = esc(title),
             banner = self.banner,
-            footer = self.footer,
         )
     }
 
     /// A list of episodes played by the text-mode player.
-    fn episode_page(&self, title: &str, playlist: &str, episodes: &[&Episode]) -> String {
+    fn episode_page(
+        &self,
+        lang: &Lang,
+        path: &str,
+        title: &str,
+        playlist: &str,
+        episodes: &[&Episode],
+    ) -> String {
         let width = episodes.len().to_string().len();
+        let home = format!("{}/", lang.prefix);
         let mut body = format!(
-            r#"<p class="nav"><a href="/">◄ все подкасты</a></p><h2>{}</h2><p class="lead">♫ <a href="/{}" download>Скачать плейлист [m3u]</a> <span class="meta">({})</span></p><ol class="episodes">"#,
+            r#"<div class="navrow"><p class="nav"><a href="{}">{}</a></p><!--nav--></div><h2>{}</h2><p class="lead">♫ <a href="/{}" download>{}</a> <span class="meta">({})</span></p><ol class="episodes">"#,
+            esc(&home),
+            esc(lang.back),
             esc(&title.to_uppercase()),
             esc(playlist),
+            esc(lang.download),
             episodes.len()
         );
         for (i, ep) in episodes.iter().enumerate() {
@@ -325,16 +444,38 @@ impl Layout {
             r#"<script>TextPlayer.attach({ links: "ol.episodes a[data-file]" });</script>"#,
         );
         body.push_str(&self.keynav);
-        body.push_str(
-            r#"<script>KeyNav.attach({ items: "ol.episodes a[data-file]", back: "/" });</script>"#,
+        let _ = write!(
+            body,
+            r#"<script>KeyNav.attach({{ items: "ol.episodes a[data-file]", back: "{}" }});</script>"#,
+            esc(&home)
         );
-        self.page(&format!("{title} — {SITE_TITLE}"), &body)
+        self.page(lang, path, &format!("{title} — {SITE_TITLE}"), &body)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn languages_complete() {
+        for l in &LANGS {
+            for t in [
+                l.all_playlist,
+                l.podcasts,
+                l.folders,
+                l.no_podcast,
+                l.back,
+                l.download,
+                l.keys,
+                l.gopher,
+                l.players,
+            ] {
+                assert!(!t.trim().is_empty(), "{}", l.code);
+            }
+        }
+        assert_eq!(LANGS[0].prefix, "", "the main language is at the root");
+    }
 
     #[test]
     fn escaping() {

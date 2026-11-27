@@ -59,6 +59,7 @@ pub fn scan(root: &Path, base_url: &str, rules: &PodcastRules) -> Result<Vec<Fol
     }
     unify_artist_spelling(&mut folders);
     match_tagged_siblings(&mut folders, &tails);
+    unify_within_podcasts(&mut folders, rules);
     Ok(folders)
 }
 
@@ -174,6 +175,88 @@ fn match_tagged_siblings(folders: &mut [Folder], tails: &HashMap<String, String>
     }
 }
 
+/// Makes the episodes of one podcast agree with each other (tags of the same show
+/// are often written differently):
+/// 1. artist renames from the rules (`[[artist]]`: typos such as "Mordax Dastards");
+/// 2. an artist / title split in the wrong place ("MORDAX" + "Bastards ZEBRA") is
+///    replaced by the most common pair when both read the same as one text;
+/// 3. artists and titles that differ only in case or punctuation take the most common
+///    spelling ("Mordax Bastards" → "MORDAX Bastards", "Zebra" → "ZEBRA").
+fn unify_within_podcasts(folders: &mut [Folder], rules: &PodcastRules) {
+    for ep in folders.iter_mut().flat_map(|f| &mut f.episodes) {
+        if let Some(a) = ep.artist.as_deref().and_then(|a| rules.artist(a)) {
+            ep.artist = Some(a.to_owned());
+        }
+    }
+
+    // normalized podcast → the episodes' (artist, title)
+    let mut groups: HashMap<String, Vec<(Option<String>, String)>> = HashMap::new();
+    for ep in folders.iter().flat_map(|f| &f.episodes) {
+        if let Some(p) = &ep.podcast {
+            groups
+                .entry(normalize(p))
+                .or_default()
+                .push((ep.artist.clone(), ep.title.clone()));
+        }
+    }
+    let joined =
+        |a: &Option<String>, t: &str| normalize(&format!("{} {t}", a.as_deref().unwrap_or("")));
+    let mut common_pair: HashMap<String, (Option<String>, String)> = HashMap::new();
+    let mut spelling: HashMap<(String, String), String> = HashMap::new(); // (podcast, normalized) → text
+    for (key, pairs) in &groups {
+        if let Some((pair, n)) = most_common(pairs.iter().cloned())
+            && n >= 2
+        {
+            common_pair.insert(key.clone(), pair);
+        }
+    }
+    for ep in folders.iter_mut().flat_map(|f| &mut f.episodes) {
+        let Some(key) = ep.podcast.as_deref().map(normalize) else {
+            continue;
+        };
+        if let Some((a, t)) = common_pair.get(&key)
+            && (ep.artist.as_ref(), &ep.title) != (a.as_ref(), t)
+            && joined(&ep.artist, &ep.title) == joined(a, t)
+        {
+            ep.artist.clone_from(a);
+            ep.title.clone_from(t);
+        }
+    }
+    // spellings, counted after the repairs above
+    let mut texts: HashMap<String, Vec<String>> = HashMap::new();
+    for ep in folders.iter().flat_map(|f| &f.episodes) {
+        if let Some(key) = ep.podcast.as_deref().map(normalize) {
+            let v = texts.entry(key).or_default();
+            v.extend(ep.artist.clone());
+            v.push(ep.title.clone());
+        }
+    }
+    for (key, words) in texts {
+        let mut by_norm: HashMap<String, Vec<String>> = HashMap::new();
+        for w in words {
+            by_norm.entry(normalize(&w)).or_default().push(w);
+        }
+        for (norm, variants) in by_norm {
+            if let Some((best, _)) = most_common(variants.into_iter()) {
+                spelling.insert((key.clone(), norm), best);
+            }
+        }
+    }
+    for ep in folders.iter_mut().flat_map(|f| &mut f.episodes) {
+        let Some(key) = ep.podcast.as_deref().map(normalize) else {
+            continue;
+        };
+        if let Some(a) = &mut ep.artist
+            && let Some(s) = spelling.get(&(key.clone(), normalize(a)))
+        {
+            a.clone_from(s);
+        }
+        if let Some(s) = spelling.get(&(key, normalize(&ep.title))) {
+            ep.title.clone_from(s);
+        }
+    }
+}
+
 /// The most frequent item and its count; on a tie, the one seen first.
 fn most_common<T: PartialEq>(items: impl Iterator<Item = T>) -> Option<(T, usize)> {
     let mut counts: Vec<(T, usize)> = Vec::new();
@@ -252,8 +335,14 @@ fn scan_folder(
         if probe.is_none() {
             warn(&format!("{rel}: не найден MPEG-заголовок"));
         }
-        let tag_title = tag.as_ref().and_then(|t| t.title()).and_then(clean);
         let tag_artist = tag.as_ref().and_then(|t| t.artist()).and_then(clean);
+        // A title tag without an artist tag is not trusted: such tags hold station
+        // codes ("2015-075 PARTYFON RADIO"); the file name then gives both.
+        let tag_title = tag
+            .as_ref()
+            .and_then(|t| t.title())
+            .and_then(clean)
+            .filter(|_| tag_artist.is_some());
         let album = tag.as_ref().and_then(|t| t.album()).and_then(clean);
         let podcast = rules.resolve(&name, album.as_deref());
         let tagged = tag_title.is_some();
@@ -456,6 +545,41 @@ mod tests {
         assert_eq!(
             got,
             [(Some(bogof), "BOGOF"), (Some("Jalsomino Ml Key"), "BOGOF")]
+        );
+    }
+
+    #[test]
+    fn episodes_of_a_podcast_agree() {
+        let z = "Zebra";
+        let mut p = folder(vec![
+            ep("a", z, "ZEBRA", Some("MORDAX Bastards"), true),
+            ep("b", z, "ZEBRA", Some("MORDAX Bastards"), true),
+            ep("c", z, "Bastards ZEBRA", Some("MORDAX"), true),
+            ep("d", z, "Zebra", Some("Mordax Bastards"), true),
+            ep("e", z, "Zebra", Some("Mordax Dastards"), true),
+            ep("f", z, "ZEBRA Mix Show", Some("MORDAX Bastards"), true),
+        ]);
+        let rules = PodcastRules::parse(
+            "[[artist]]\nname = \"MORDAX Bastards\"\ntags = [\"Mordax Dastards\"]",
+        )
+        .unwrap();
+        unify_within_podcasts(&mut p, &rules);
+        let got: Vec<_> = p[0]
+            .episodes
+            .iter()
+            .map(|e| format!("{} — {}", e.artist.as_deref().unwrap_or(""), e.title))
+            .collect();
+        let zebra = "MORDAX Bastards — ZEBRA";
+        assert_eq!(
+            got,
+            [
+                zebra,
+                zebra,
+                zebra,
+                zebra,
+                zebra,
+                "MORDAX Bastards — ZEBRA Mix Show"
+            ]
         );
     }
 

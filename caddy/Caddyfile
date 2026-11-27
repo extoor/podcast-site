@@ -19,7 +19,9 @@
 
 	header {
 		X-Content-Type-Options nosniff
-		Referrer-Policy no-referrer
+		# same-origin: keyboard navigation uses the referrer to select the podcast you
+		# came back from; nothing goes to other sites
+		Referrer-Policy same-origin
 		X-Frame-Options DENY
 		# Keep the site out of search engines and their caches (with /robots.txt)
 		X-Robots-Tag "noindex, nofollow, noarchive, nosnippet, noimageindex"

@@ -120,3 +120,11 @@ files = ["magnit-"]
 name = "Zebra"
 tags = ["Bastards ZEBRA", "ZEBRA Mix Show"]
 files = ["mordax-"]
+
+# --- Artist spellings ---------------------------------------------------------
+# [[artist]]: other spellings (typos) of an artist; compared ignoring case, spaces and
+# punctuation. Spellings that differ only in case are unified without rules.
+
+[[artist]]
+name = "MORDAX Bastards"
+tags = ["Mordax Dastards"]

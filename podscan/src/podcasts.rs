@@ -25,6 +25,18 @@ pub const NO_PODCAST_SLUG: &str = "bez-podkasta";
 struct RulesFile {
     #[serde(default)]
     podcast: Vec<Rule>,
+    #[serde(default)]
+    artist: Vec<ArtistRule>,
+}
+
+/// Other spellings of an artist name (typos in tags and file names).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArtistRule {
+    /// Canonical artist name.
+    name: String,
+    /// Spellings to replace; compared ignoring case, spaces and punctuation.
+    tags: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,6 +59,8 @@ pub struct PodcastRules {
     by_tag: HashMap<String, String>,
     /// (lowercase prefix, name), sorted by prefix length, longest first.
     by_file: Vec<(String, String)>,
+    /// Normalized artist spelling → canonical artist name.
+    artists: HashMap<String, String>,
 }
 
 impl PodcastRules {
@@ -99,7 +113,28 @@ impl PodcastRules {
             }
         }
         by_file.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then_with(|| a.0.cmp(&b.0)));
-        Ok(Self { by_tag, by_file })
+        let mut artists = HashMap::new();
+        for rule in file.artist {
+            let Some(name) = crate::text::clean(&rule.name) else {
+                bail!("пустое имя исполнителя");
+            };
+            for tag in rule.tags {
+                let key = normalize(&tag);
+                if key.is_empty() {
+                    continue;
+                }
+                if let Some(prev) = artists.insert(key, name.clone())
+                    && prev != name
+                {
+                    bail!("написание исполнителя {tag:?} указано и у {prev:?}, и у {name:?}");
+                }
+            }
+        }
+        Ok(Self {
+            by_tag,
+            by_file,
+            artists,
+        })
     }
 
     /// Determines the podcast from the file name and the (cleaned) album tag.
@@ -123,6 +158,11 @@ impl PodcastRules {
 }
 
 impl PodcastRules {
+    /// The canonical name of an artist spelled `a`, if a rule renames it.
+    pub fn artist(&self, a: &str) -> Option<&str> {
+        self.artists.get(&normalize(a)).map(String::as_str)
+    }
+
     /// Whether the normalized string `norm` matches `podcast`:
     /// equals its name or one of the variants from `tags`.
     pub fn matches(&self, podcast: &str, norm: &str) -> bool {
