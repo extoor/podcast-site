@@ -37,13 +37,15 @@ COPY sitegen sitegen
 COPY gopherd gopherd
 # inlined into the pages at compile time (include_str!)
 COPY web web
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
+# The crate download cache is shared by the amd64 and arm64 builds running side by side:
+# locked, or they unpack the same crates at once ("File exists").
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,id=podcast-site-target-${TARGETARCH} \
     t="$(cat /rust-target)" \
  && T="$(echo "$t" | tr 'a-z-' 'A-Z_')" \
  && export "CARGO_TARGET_${T}_LINKER=rust-lld" RUSTFLAGS="-C linker-flavor=ld.lld" \
  && cargo build --release --locked --target "$t" -p sitegen -p gopherd \
- && mkdir /out \
+ && mkdir -p /out/site \
  && cp "target/$t/release/sitegen" "target/$t/release/gopherd" /out/
 
 # --- generator: CronJob ----------------------------------------------------------------
@@ -52,6 +54,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #   GOPHER_HOST, GOPHER_PORT  where the Gopher menus point (the public name and port)
 FROM gcr.io/distroless/static-debian12:nonroot AS generator
 COPY --from=build /out/sitegen /usr/local/bin/sitegen
+# /site owned by the image user: a fresh volume mounted there inherits it (in Kubernetes
+# the pod sets fsGroup: 65532 as well)
+COPY --from=build --chown=65532:65532 /out/site /site
 COPY podcasts.toml /etc/podcast-site/podcasts.toml
 USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/sitegen", "--scan"]
@@ -62,6 +67,7 @@ CMD ["--media", "/media", "--build", "/site", "--rules", "/etc/podcast-site/podc
 # without root, give the pod the sysctl net.ipv4.ip_unprivileged_port_start=0.
 FROM gcr.io/distroless/static-debian12:nonroot AS gopherd
 COPY --from=build /out/gopherd /usr/local/bin/gopherd
+COPY --from=build --chown=65532:65532 /out/site /site
 USER 65532:65532
 EXPOSE 7070
 ENTRYPOINT ["/usr/local/bin/gopherd"]
@@ -80,6 +86,7 @@ RUN apk add --no-cache libcap \
  && apk del libcap \
  && caddy version
 COPY caddy/Caddyfile /etc/caddy/Caddyfile
+COPY --from=build --chown=65532:65532 /out/site /site
 ENV SITE_ADDRESS=:8080 BUILD_DIR=/site MEDIA_DIR=/media \
     XDG_DATA_HOME=/tmp/caddy-data XDG_CONFIG_HOME=/tmp/caddy-config
 USER 65532:65532
