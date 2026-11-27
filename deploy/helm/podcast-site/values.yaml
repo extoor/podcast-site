@@ -17,6 +17,9 @@ imagePullSecrets: []
 # --- web: Caddy, behind Traefik --------------------------------------------------------
 web:
   replicas: 1
+  # Proxies whose X-Real-IP / X-Forwarded-For Caddy believes (the access log gets the
+  # visitor's address as client_ip): CIDRs or private_ranges; e.g. the pod CIDR of Traefik.
+  trustedProxies: [private_ranges]
   resources:
     requests: { cpu: 20m, memory: 32Mi }
     limits: { memory: 128Mi }

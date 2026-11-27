@@ -10,6 +10,14 @@
 {
 	# No admin API: the config is static, nothing should be able to change it at runtime.
 	admin off
+
+	# The visitor's address behind a proxy (Traefik): taken from these headers, but only
+	# when the request comes from a trusted proxy (TRUSTED_PROXIES: CIDRs or
+	# private_ranges, separated by spaces). The access log then has client_ip.
+	servers {
+		trusted_proxies static {$TRUSTED_PROXIES:private_ranges}
+		client_ip_headers X-Real-IP X-Forwarded-For
+	}
 }
 
 {$SITE_ADDRESS::8080} {

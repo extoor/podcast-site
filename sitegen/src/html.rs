@@ -296,7 +296,11 @@ impl Layout {
         banner.push_str("</div>\n");
         Ok(Self {
             banner,
-            gopher: format!("gopher://{}:{}/", esc(&gopher.host), gopher.port),
+            // 70 is the default port of gopher:// URLs: leave it out of the link
+            gopher: match gopher.port {
+                70 => format!("gopher://{}/", esc(&gopher.host)),
+                port => format!("gopher://{}:{port}/", esc(&gopher.host)),
+            },
             textplayer: inline_script(TEXTPLAYER_JS)?,
             keynav: inline_script(KEYNAV_JS)?,
         })
@@ -456,6 +460,19 @@ impl Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gopher_link_port() {
+        let link = |port| {
+            let server = Server {
+                host: "example.org".into(),
+                port,
+            };
+            Layout::new(&server).map(|l| l.gopher)
+        };
+        assert_eq!(link(70).unwrap(), "gopher://example.org/");
+        assert_eq!(link(7070).unwrap(), "gopher://example.org:7070/");
+    }
 
     #[test]
     fn languages_complete() {

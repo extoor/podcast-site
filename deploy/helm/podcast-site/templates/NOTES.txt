@@ -2,7 +2,7 @@ podcast-site {{ .Chart.Version }}, images {{ .Values.image.registry }}/*:{{ .Val
 
 Web:    https://{{ include "ps.domain" . }}/
 {{- if .Values.gopher.enabled }}
-Gopher: gopher://{{ include "ps.gopherHost" . }}:{{ .Values.gopher.port }}/  (DNS of this name → the pod's own address)
+Gopher: gopher://{{ include "ps.gopherHost" . }}{{ if ne (int .Values.gopher.port) 70 }}:{{ .Values.gopher.port }}{{ end }}/  (DNS of this name → the pod's own address)
 {{- end }}
 
 The site is built by the CronJob {{ include "ps.fullname" . }}-generator ({{ .Values.generator.schedule }}).

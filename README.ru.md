@@ -154,7 +154,9 @@ GitHub Actions (`.github/workflows/`):
   интеграционными тестами (`gopherd/tests/server.rs`).
 - Caddy отдаёт из медиатеки только MP3, присылает Content Security Policy, которая
   разрешает лишь собственный встроенный код страниц и шрифты Google, и работает с
-  выключенным админ-API.
+  выключенным админ-API. Адрес посетителя (`X-Real-IP`, `X-Forwarded-For`) принимается только
+  от доверенных прокси (`TRUSTED_PROXIES`, в чарте `web.trustedProxies`, по умолчанию
+  `private_ranges`) и пишется в лог доступа как `client_ip`.
 - Всё, что берётся из тегов и имён файлов, в HTML экранируется, а в меню Gopher
   очищается от табуляций и переводов строк.
 - Без `unsafe`; `cargo audit` и `cargo deny` — перед каждым коммитом.

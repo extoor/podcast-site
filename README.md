@@ -155,7 +155,9 @@ GitHub Actions (`.github/workflows/`):
   Attacks are covered by integration tests (`gopherd/tests/server.rs`).
 - Caddy serves only MP3 files from the media library, sends a Content Security Policy
   that allows only the pages' own inline code and Google Fonts, and has its admin API
-  turned off.
+  turned off. The visitor's address (`X-Real-IP`, `X-Forwarded-For`) is believed only from
+  trusted proxies (`TRUSTED_PROXIES`, in the chart `web.trustedProxies`, default
+  `private_ranges`) and goes to the access log as `client_ip`.
 - Everything taken from tags and file names is escaped in HTML and cleaned of tabs
   and line breaks in Gopher menus.
 - No `unsafe` code; `cargo audit` and `cargo deny` run before every commit.
