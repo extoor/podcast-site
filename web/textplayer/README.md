@@ -75,7 +75,7 @@ beforehand (in podcast-site this is done by `podscan`, module `mpeg.rs`).
 | `playingClass` | `"tp-playing"`          | class of the current track, to highlight it in the list |
 | `width`        | `70`                    | inner width of the window, in characters |
 | `bufferTarget` | `60`                    | seconds buffered ahead of the playhead shown as a full `Buf` bar |
-| `spectrum`     | `true`                  | spectrum analyzer under `Buf`: LED-style bars of `▂▂` segments, 20 bands from 50 Hz to 16 kHz (Web Audio) |
+| `spectrum`     | `true`                  | spectrum analyzer under the progress line: LED-style bars of `▂▂` segments, from 50 Hz to 16 kHz (Web Audio) |
 | `spectrumRows` | `16`                    | segments per bar (a segment takes about a third of a line) |
 | `spectrumCookie` | `"tp_spectrum"`      | cookie that keeps the `A` key choice for a year (`1` shown, `0` hidden) |
 
@@ -111,7 +111,8 @@ Colors and font are set with CSS variables on `:root` or `.tp-overlay`:
 | `--tp-z`          | `1000`       | z-index |
 | `--tp-spec-low`, `--tp-spec-mid`, `--tp-spec-high` | `#1a1`, `#cc0`, `#d22` | analyzer segments: bottom, middle, top |
 
-How the analyzer works: 22 bands spaced evenly on a log scale from 50 Hz to 16 kHz; a band
+How the analyzer works: as many bands as fit the window edge to edge (23 at the default width),
+spaced evenly on a log scale from 50 Hz to 16 kHz; a band
 shows its average power (not its loudest bin), with a tilt of +4.5 dB per octave around 1 kHz,
 because music loses energy towards the highs and without the tilt the right half stays low.
 Bars rise at once and fall at a fixed rate in seconds (the same on 60 and 120 Hz screens);

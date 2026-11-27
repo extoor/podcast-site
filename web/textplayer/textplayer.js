@@ -225,7 +225,9 @@
       on: o.spectrum && sameOrigin && !!(global.AudioContext || global.webkitAudioContext),
       shown: readCookie(o.spectrumCookie) !== "0",   // the A key; shown unless turned off
       rows: o.spectrumRows,
-      bands: Math.floor((W - 2) / 3),        // a bar is 2 columns + 1 gap
+      // a bar is 2 columns, bars 1 apart: as many as fit the inner width (23 at 70),
+      // so the spectrum lines up with the text above it, edge to edge
+      bands: Math.floor((W - 1) / 3),
       levels: null,                         // per band, 0..rows
       peaks: null, held: null,              // peak level per band, when it was reached
       ctx: null, an: null, data: null, raf: 0, last: 0,
@@ -233,15 +235,16 @@
       line(r) {
         const t = this.rows - r;            // the level this line lights at
         const cls = t > this.rows * 0.8 ? "tp-r" : t > this.rows * 0.5 ? "tp-y" : "tp-g";
-        let lit = "";
+        const cells = [];
         for (let b = 0; b < this.bands; b++) {
           const level = this.levels ? Math.round(this.levels[b]) : 0;
           const peak = this.peaks ? Math.round(this.peaks[b]) : 0;
           // a bar up to its level, and above it the hanging peak segment
-          lit += (level >= t || (peak === t && peak > level) ? "▂▂" : "  ") + " ";
+          cells.push(level >= t || (peak === t && peak > level) ? "▂▂" : "  ");
         }
-        // pad to the inner width, so the right frame stays in place
-        return `<span class="${cls}">${lit.padEnd(W - 2)}</span>`;
+        // bars centered in the inner width: the spare columns split left and right
+        const bars = cells.join(" "), left = Math.floor((W - 2 - bars.length) / 2);
+        return `<span class="${cls}">${(" ".repeat(left) + bars).padEnd(W - 2)}</span>`;
       },
     };
     // A: show / hide the analyzer, remembered in a cookie for a year. The window is
