@@ -32,10 +32,17 @@ spec:
   claimRef:
     namespace: {{ .Release.Namespace }}
     name: {{ include "ps.fullname" . }}-media
-  {{- with .Values.media.csi.mountOptions }}
+  # FUSE is visible only to the mounting user (root on the node) without allow-other; the
+  # kubelet does not hand the fsGroup of a read-only volume to the driver, so set the
+  # owner here from the pods' security context.
+  {{- $psc := .Values.podSecurityContext }}
   mountOptions:
+    - allow-other
+    - uid={{ $psc.runAsUser }}
+    - gid={{ default $psc.runAsGroup $psc.fsGroup }}
+    {{- with .Values.media.csi.mountOptions }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
   csi:
     driver: {{ .Values.media.csi.driver }}
     volumeHandle: {{ .Values.media.csi.volumeHandle }}

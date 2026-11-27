@@ -115,7 +115,7 @@ The Helm chart `deploy/helm/podcast-site` deploys everything:
   three pods share one node);
 - the audio is a read-only PV of the rclone CSI driver
   ([veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone),
-  `crypt:music/Podcast`); its configuration (key `configData`, the whole `rclone.conf`) is
+  `crypt:music/Podcasts`); its configuration (key `configData`, the whole `rclone.conf`) is
   a Secret made outside the chart (`media.csi.nodePublishSecretRef`), or use your own
   claim with `media.type: existingClaim`;
 - `gopherd` gets its own address through Multus (`gopher.podAnnotations`) and listens on
