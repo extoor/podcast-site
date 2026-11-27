@@ -19,6 +19,13 @@
   импортируется в `postCreateCommand`. Для разовых `ssh radxa` — `-o ClearAllForwardings=yes`,
   иначе проброс у сессии VS Code перехватывается.
 
+- Репозиторий: https://github.com/extoor/podcast-site (публичный, remote `github`). Ветка `main`
+  защищена ruleset'ом: только через pull request, подписанные коммиты, без force push, слияние
+  squash/merge и только с зелёными проверками (`fmt, clippy, tests`, `cargo audit, cargo deny`,
+  `inlined scripts, Caddyfile`, `no secrets in git`, `generator`, `gopherd`, `web`).
+  Порядок работы: ветка → push → `gh pr create` → `gh pr merge --squash --auto`.
+  Remote `origin` (`git.tuhu.io`) — старая копия до переписывания истории, туда не пушим.
+
 ## Архитектура
 
 Принцип: **одни данные — два вывода**. Каталог строится один раз генератором,
