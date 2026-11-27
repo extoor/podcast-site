@@ -109,7 +109,8 @@ The Helm chart `deploy/helm/podcast-site` deploys everything:
 
 - the domain is written once, `domain` (plus optional `extraDomains`); the cert-manager
   `Certificate`, both Traefik `IngressRoute`s (`web`, port 80, redirects to HTTPS
-  through the `redirect-scheme` middleware; `websecure` has none) and the playlists' base URL all come from it;
+  through the `redirect-scheme` middleware; `websecure` has none) and the playlists' base
+  URL all come from it;
 - `generator` is a CronJob (`generator.schedule`) plus a Job after every install/upgrade;
   the built site lives on a PVC (`site.storageClass`, `openebs-hostpath` by default, so the
   three pods share one node);
@@ -125,13 +126,107 @@ The Helm chart `deploy/helm/podcast-site` deploys everything:
 - every pod passes Pod Security "restricted"; `networkPolicy.enabled` forbids egress and lets
   only Traefik reach the web pod.
 
-```sh
-helm install podcast-site deploy/helm/podcast-site -n podcasts --create-namespace \
-  --set domain=podcasts.example.org
+### What the cluster needs
+
+- Traefik with its CRDs (`traefik.io/v1alpha1`), entry points `web` and `websecure`, and the
+  `redirect-scheme` middleware in namespace `traefik` (`ingressRoute.*` in the values);
+- cert-manager and an issuer (`certificate.issuerRef`, default ClusterIssuer
+  `zerossl-production`);
+- the rclone CSI driver [veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone);
+- a StorageClass for the built site (`site.storageClass`, default `openebs-hostpath`);
+- for Gopher: Multus and a macvlan NetworkAttachmentDefinition (or `gopher.enabled: false`).
+
+### 1. Your values, outside git
+
+The repository is public: the real domain and internal addresses go to `deploy/local/`,
+which is in `.gitignore`. For example `deploy/local/values.yaml`:
+
+```yaml
+domain: podcasts.example.org
+gopher:
+  podAnnotations:
+    k8s.v1.cni.cncf.io/networks: |
+      [{"name": "macvlan-dmz", "namespace": "default", "interface": "dmz",
+        "ips": ["192.0.2.41/24"], "default-route": ["192.0.2.1"]}]
+web:
+  trustedProxies: [10.42.0.0/16]   # pod CIDR of Traefik; default private_ranges
 ```
 
-Also there: `deploy/kustomize/` — the same chart through kustomize
-(`kustomize build --enable-helm`) for your own patches, and `deploy/argocd/application.yaml`.
+All settings with comments are in `deploy/helm/podcast-site/values.yaml`.
+
+### 2. The rclone Secret
+
+The driver reads only the key `configData`: the whole `rclone.conf` with the `crypt`
+section and the remote under it (only these two, not your other remotes). If the
+configuration is password-protected, export an unencrypted copy with `rclone config show`.
+
+```sh
+kubectl create namespace podcasts
+kubectl -n podcasts create secret generic podcast-site-rclone --from-file=configData=rclone.conf
+```
+
+### 3. Install
+
+```sh
+helm upgrade --install podcast-site deploy/helm/podcast-site -n podcasts -f deploy/local/values.yaml
+kubectl -n podcasts get pods -w
+```
+
+Right after the install a Job builds the site (`podcast-site-generator-init`); the web and
+Gopher pods become ready when it is done. Check:
+
+```sh
+kubectl -n podcasts get pods,certificate,ingressroute
+kubectl -n podcasts exec deploy/podcast-site-gopherd -- /usr/local/bin/gopherd --check 127.0.0.1:70
+kubectl -n podcasts logs deploy/podcast-site-web | tail -3
+```
+
+### Network
+
+- DNS of `domain` points to the public address; ports 80 and 443 go to Traefik (the HTTP-01
+  check of cert-manager needs port 80).
+- Port 70 of the public address is forwarded to the Gopher pod's own address. Its answers must
+  leave through the same interface: either SNAT on the router, or `"default-route"` in the
+  Multus annotation (as above); gopherd needs no cluster network.
+- The visitor's address reaches the access log (`client_ip`) only if Traefik sees it
+  (`externalTrafficPolicy: Local` on its Service, no SNAT before it) and its pods are in
+  `web.trustedProxies`.
+
+### Updates
+
+The images are `latest` with `pullPolicy: Always`, rebuilt from `main` and weekly. To take
+them and rebuild the site at once (otherwise it is rebuilt on `generator.schedule`):
+
+```sh
+helm upgrade --install podcast-site deploy/helm/podcast-site -n podcasts -f deploy/local/values.yaml
+kubectl -n podcasts rollout restart deploy/podcast-site-web deploy/podcast-site-gopherd
+kubectl -n podcasts create job --from=cronjob/podcast-site-generator podcast-site-build-now
+```
+
+### ArgoCD
+
+`deploy/argocd/application.yaml` is an example; keep your copy with the real values in
+`deploy/local/` and apply it with `kubectl apply -f`. Coming from a Helm install: delete only the
+Helm release record, ArgoCD takes over the running objects. Do not `helm uninstall`, it
+deletes the PVC with the built site.
+
+```sh
+kubectl -n podcasts delete secret -l owner=helm,name=podcast-site
+kubectl apply -f deploy/local/argocd-application.yaml
+```
+
+`deploy/kustomize/` is the same chart through kustomize (`kustomize build --enable-helm`) for
+your own patches.
+
+### When something goes wrong
+
+| Symptom | Cause and fix |
+|---|---|
+| `FailedMount … either configData or remoteType must be provided` | The Secret has another key (`--from-file=rclone.conf`). Recreate it with `--from-file=configData=…`, then delete the pods. |
+| PVC `Pending`, `volume … already bound to a different claim` | The PV is `Released` after its PVC was deleted. `kubectl patch pv <pv> --type json -p '[{"op":"remove","path":"/spec/claimRef/uid"}]'` |
+| `/media` is empty | Wrong `media.csi.volumeAttributes.remotePath` or wrong crypt keys. Look with `rclone lsd crypt:<path>` using the same configuration. |
+| `/media`: `Permission denied` | The mount lacks `allow-other`/`uid`/`gid`; the chart adds them, check `media.csi.mountOptions` and `podSecurityContext`. |
+| The certificate is not issued | `kubectl -n podcasts describe certificate,challenge`: usually DNS or port 80 not reaching Traefik. |
 
 ## Continuous integration
 
