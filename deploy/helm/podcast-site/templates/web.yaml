@@ -24,6 +24,9 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          env:
+            - name: TRUSTED_PROXIES
+              value: {{ join " " .Values.web.trustedProxies | quote }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources:

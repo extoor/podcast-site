@@ -92,6 +92,8 @@
 4. **HTTPS** — Caddy, конфиг `caddy/Caddyfile`: отдаёт `build/www`, плейлисты и аудио из
    `/media/podcasts` (под `/media/` — только `*.mp3`: в библиотеке есть чужой `index.html`).
    CSP разрешает только inline-скрипты/стили и шрифты Google; админ-API выключен.
+   Реальный IP посетителя — из `X-Real-IP`/`X-Forwarded-For` только от `TRUSTED_PROXIES`
+   (чарт: `web.trustedProxies`, по умолчанию `private_ranges`), в логе — `client_ip`.
    Обязательно поддержка Range-запросов (перемотка в плеерах).
    Плейлисты `/playlists/*.m3u8` — с `Content-Disposition: attachment`: иначе Chrome и Safari
    открывают их встроенным HLS-плеером вместо скачивания (на страницах — атрибут `download`).
