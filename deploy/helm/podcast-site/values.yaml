@@ -51,10 +51,21 @@ gopher:
   host: ""
   port: 70
   maxConns: 256
-  # e.g. the Multus network with a static IP:
+  # The pod's own address (Multus macvlan): the chart makes a NetworkAttachmentDefinition
+  # and the pod annotation. With a gateway, the routes 0.0.0.0/1 and 128.0.0.0/1 go
+  # through it: more specific than the default route on eth0 (which Multus' default-route
+  # does not replace everywhere), so answers to outside clients leave through this
+  # interface, while the cluster network stays on eth0.
+  network:
+    enabled: false
+    master: ""          # the node interface, e.g. eth0.100 (a VLAN)
+    mode: bridge
+    interface: dmz      # the interface name in the pod
+    address: ""         # e.g. 192.0.2.41/24
+    gateway: ""         # e.g. 192.0.2.1; empty: no routes, only the local subnet
+  # More annotations, or your own Multus network instead of gopher.network:
   #   k8s.v1.cni.cncf.io/networks: |
-  #     [{"name": "macvlan-dmz-static", "namespace": "default", "interface": "dmz",
-  #       "ips": ["<gopher-ip>/24"]}]
+  #     [{"name": "<nad>", "namespace": "<ns>", "interface": "dmz", "ips": ["<ip>/24"]}]
   podAnnotations: {}
   resources:
     requests: { cpu: 10m, memory: 16Mi }

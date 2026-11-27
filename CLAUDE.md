@@ -205,8 +205,11 @@
          middleware redirect-scheme из ns traefik; `websecure` — без middleware)
          + cert-manager Certificate (ClusterIssuer
          zerossl-production), Caddy внутри на 8080;
-       - Gopher — Multus macvlan со своим IP в DMZ (аннотация `k8s.v1.cni.cncf.io/networks`,
-         сеть `macvlan-dmz-static`, интерфейс `dmz`), gopherd слушает 70 без root через sysctl
+       - Gopher — Multus macvlan со своим IP в DMZ: `gopher.network` (master — VLAN-интерфейс ноды,
+         интерфейс `dmz`) — чарт создаёт NetworkAttachmentDefinition и аннотацию пода; через
+         шлюз — маршруты `0.0.0.0/1` и `128.0.0.0/1`: `default-route` Multus с k3s/flannel не
+         заменил маршрут по умолчанию на `eth0`, и ответы клиентам уходили в сеть кластера
+         (проверено в кластере); gopherd слушает 70 без root через sysctl
          `net.ipv4.ip_unprivileged_port_start=0`; в меню — то же имя, что у веба, порт 70:
          маршрутизатор переадресует 70 публичного адреса на IP пода;
        - домен — `fm.tuhu.io` (веб и Gopher). Реальные значения (IP пода и т. п.) — не в git:

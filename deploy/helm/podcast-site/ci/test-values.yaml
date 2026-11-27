@@ -2,9 +2,13 @@
 domain: podcasts.example.org
 extraDomains: [podcasts.example.net]
 gopher:
+  network:
+    enabled: true
+    master: eth0.100
+    address: 192.0.2.45/24
+    gateway: 192.0.2.1
   podAnnotations:
-    k8s.v1.cni.cncf.io/networks: |
-      [{"name": "macvlan-dmz-static", "namespace": "default", "interface": "dmz", "ips": ["192.0.2.45/24"]}]
+    example.org/note: kept next to the network annotation
 generator:
   rules: |
     [[podcast]]

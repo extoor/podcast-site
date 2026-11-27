@@ -119,7 +119,7 @@ musl-файлы (линкует `rust-lld` из тулчейна Rust; все з
   Secret, создаваемый вне чарта (`media.csi.nodePublishSecretRef`), либо свой claim через
   `media.type: existingClaim`. `helm install`/`upgrade` останавливается, если Secret нет или в
   нём нет ключа `configData`;
-- `gopherd` получает свой адрес через Multus (`gopher.podAnnotations`) и слушает порт 70
+- `gopherd` получает свой адрес через Multus (`gopher.network`) и слушает порт 70
   без root (sysctl пода `net.ipv4.ip_unprivileged_port_start=0`); меню ссылаются на
   `gopher.host` (по умолчанию `domain` — то же имя, что у веба);
 - все поды проходят Pod Security «restricted»; `networkPolicy.enabled` запрещает исходящие
@@ -133,7 +133,8 @@ musl-файлы (линкует `rust-lld` из тулчейна Rust; все з
   `zerossl-production`);
 - rclone CSI-драйвер [veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone);
 - StorageClass для собранного сайта (`site.storageClass`, по умолчанию `openebs-hostpath`);
-- для Gopher — Multus и NetworkAttachmentDefinition типа macvlan (или `gopher.enabled: false`).
+- для Gopher — Multus с CNI-плагинами macvlan и static (NetworkAttachmentDefinition создаёт
+  чарт), или `gopher.enabled: false`.
 
 ### 1. Свои значения — вне git
 
@@ -143,10 +144,11 @@ musl-файлы (линкует `rust-lld` из тулчейна Rust; все з
 ```yaml
 domain: podcasts.example.org
 gopher:
-  podAnnotations:
-    k8s.v1.cni.cncf.io/networks: |
-      [{"name": "macvlan-dmz", "namespace": "default", "interface": "dmz",
-        "ips": ["192.0.2.41/24"], "default-route": ["192.0.2.1"]}]
+  network:                 # the pod's own address in the DMZ (Multus macvlan)
+    enabled: true
+    master: eth0.100       # интерфейс ноды (здесь VLAN 100 на eth0)
+    address: 192.0.2.41/24
+    gateway: 192.0.2.1
 web:
   trustedProxies: [10.42.0.0/16]   # pod CIDR Traefik; по умолчанию private_ranges
 ```
@@ -185,8 +187,11 @@ kubectl -n podcasts logs deploy/podcast-site-web | tail -3
 - DNS-имя `domain` указывает на публичный адрес; порты 80 и 443 ведут на Traefik (проверке
   HTTP-01 у cert-manager нужен порт 80).
 - Порт 70 публичного адреса переадресуется на собственный адрес пода Gopher. Ответы должны
-  уходить через тот же интерфейс: либо SNAT на маршрутизаторе, либо `"default-route"` в
-  аннотации Multus (как выше); сеть кластера gopherd не нужна.
+  уходить через тот же интерфейс, иначе соединение не установится. С `gopher.network.gateway`
+  чарт ставит через шлюз маршруты `0.0.0.0/1` и `128.0.0.0/1`: они точнее маршрута по умолчанию
+  на `eth0`, который `default-route` Multus заменяет не всегда (с k3s/flannel — нет). Сеть
+  кластера остаётся на `eth0`. SNAT на маршрутизаторе тоже решает задачу. Заглянуть в
+  distroless-под: `kubectl debug -it <под> --image=nicolaka/netshoot --profile=netadmin -- ip route`.
 - Адрес посетителя попадает в лог доступа (`client_ip`), только если его видит Traefik
   (`externalTrafficPolicy: Local` у его Service, без SNAT перед ним), а поды Traefik входят в
   `web.trustedProxies`.
