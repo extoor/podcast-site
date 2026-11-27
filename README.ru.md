@@ -107,8 +107,8 @@ musl-файлы (линкует `rust-lld` из тулчейна Rust; все з
 Всё разворачивает Helm-чарт `deploy/helm/podcast-site`:
 
 - домен пишется один раз — `domain` (и при желании `extraDomains`); из него берутся
-  `Certificate` cert-manager, оба `IngressRoute` Traefik (`web` перенаправляет на HTTPS,
-  `websecure` — с вашими middleware) и базовый адрес в плейлистах;
+  `Certificate` cert-manager, оба `IngressRoute` Traefik (точки входа `web` и `websecure`,
+  без middleware) и базовый адрес в плейлистах;
 - `generator` — CronJob (`generator.schedule`) и Job после каждой установки/обновления;
   собранный сайт лежит на PVC (`site.storageClass`, по умолчанию `openebs-hostpath`, поэтому
   три пода на одной ноде);
