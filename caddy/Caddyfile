@@ -12,12 +12,19 @@
 }
 
 {$SITE_ADDRESS::8080} {
+	# Access log to stderr (one JSON line per request): the container log.
+	log {
+		output stderr
+	}
+
 	header {
 		X-Content-Type-Options nosniff
 		Referrer-Policy no-referrer
 		X-Frame-Options DENY
+		# Keep the site out of search engines and their caches (with /robots.txt)
+		X-Robots-Tag "noindex, nofollow, noarchive, nosnippet, noimageindex"
 		# Pages carry their own inline styles and scripts; only fonts come from Google.
-		Content-Security-Policy "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		Content-Security-Policy "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 		-Server
 	}
 

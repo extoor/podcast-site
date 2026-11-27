@@ -245,10 +245,14 @@ impl Layout {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
 <title>{title}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;700&display=swap">
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" type="image/png" href="/icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>{CSS}</style>
 </head>
 <body>
@@ -281,15 +285,24 @@ impl Layout {
                 .as_deref()
                 .map(|a| format!(r#"<span class="artist">{} — </span>"#, esc(a)))
                 .unwrap_or_default();
-            // Fixed-width columns, so dates line up whatever the size is.
-            let meta: Vec<String> = [
-                ep.date.clone(),
-                ep.duration_secs.map(|d| format!("{:>8}", duration(d))),
-                Some(format!("{:>5} MB", (ep.size + 500_000) / 1_000_000)),
-            ]
-            .into_iter()
-            .flatten()
-            .collect();
+            // Fixed-width columns with equal gaps: date (10), duration (7, up to
+            // 9:59:59), bitrate (`192k`; for VBR the average), size (up to 999 MB).
+            // A missing value keeps its column blank, so the columns line up.
+            let meta = [
+                format!(
+                    "{:<10}",
+                    ep.date.as_deref().map(crate::show_date).unwrap_or_default()
+                ),
+                format!("{:>7}", ep.duration_secs.map(duration).unwrap_or_default()),
+                format!(
+                    "{:>4}",
+                    ep.audio
+                        .as_ref()
+                        .map(|a| format!("{}k", a.bitrate_kbps))
+                        .unwrap_or_default()
+                ),
+                format!("{:>3} MB", (ep.size + 500_000) / 1_000_000),
+            ];
             let _ = write!(
                 body,
                 r#"<li><span class="num">{num:0width$}. </span><a href="{href}" title="{path}" data-file="{file}" data-title="{t}" data-artist="{a}" data-podcast="{prog}" data-date="{date}" data-size="{size}" data-format="{fmt}">{artist}{t}</a><span class="dots"></span><span class="meta">{meta}</span></li>"#,
@@ -300,7 +313,7 @@ impl Layout {
                 t = esc(&ep.title),
                 a = esc(ep.artist.as_deref().unwrap_or("")),
                 prog = esc(ep.podcast.as_deref().unwrap_or("")),
-                date = esc(ep.date.as_deref().unwrap_or("")),
+                date = esc(&ep.date.as_deref().map(crate::show_date).unwrap_or_default()),
                 size = ep.size,
                 fmt = esc(&ep.audio.as_ref().map(audio_line).unwrap_or_default()),
                 meta = esc(&meta.join("   ")),

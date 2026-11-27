@@ -77,10 +77,20 @@ fn main() -> Result<()> {
         );
     }
 
-    let menus = gopher::menus(&catalog, &args.server)?;
+    let mut menus = gopher::menus(&catalog, &args.server)?;
+    menus.push(("robots.txt".to_owned(), sitegen::ROBOTS_TXT.to_owned()));
     let pages = html::pages(&catalog, &args.server)?;
     replace_dir(&args.build.join("gopher"), &menus)?;
-    replace_dir(&args.build.join("www"), &pages)?;
+    let mut www: Vec<(String, Vec<u8>)> = pages
+        .iter()
+        .map(|(p, t)| (p.clone(), t.clone().into_bytes()))
+        .collect();
+    www.extend(sitegen::icon::files()?);
+    www.push((
+        "robots.txt".to_owned(),
+        sitegen::ROBOTS_TXT.as_bytes().to_vec(),
+    ));
+    replace_dir(&args.build.join("www"), &www)?;
     println!(
         "Готово: меню Gopher {} → {} (сервер в меню: {}:{}), страниц HTML {} → {}",
         menus.len(),
@@ -95,7 +105,7 @@ fn main() -> Result<()> {
 
 /// Writes `files` into a fresh directory next to `dir` and swaps it in, so a running
 /// server sees either the old or the new set of menus, not a half-written one.
-fn replace_dir(dir: &Path, files: &[(String, String)]) -> Result<()> {
+fn replace_dir<T: AsRef<[u8]>>(dir: &Path, files: &[(String, T)]) -> Result<()> {
     let new = dir.with_extension("new");
     let old = dir.with_extension("old");
     for d in [&new, &old] {

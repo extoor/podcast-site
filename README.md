@@ -9,8 +9,9 @@ pages and M3U8 playlists that the servers only hand out.
 - **Web:** retro pages drawn with text characters only (a pixel banner made of `█`,
   box-drawing frames, no images), a DOS-style audio player in the page, full keyboard
   control.
-- **Gopher:** the same catalog as menus with the same banner; episodes can be
-  downloaded over Gopher or opened over HTTPS.
+- **Gopher:** the same catalog as menus with the same banner; episodes and playlists
+  (`.m3u`) are downloaded over Gopher. Menu text uses only characters of CP866, so it
+  shows correctly in Gopher browsers on the ZX Spectrum.
 - **Playlists:** M3U8 for every podcast, every folder and all episodes, for VLC,
   foobar2000, mpv and the like.
 

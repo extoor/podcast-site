@@ -120,14 +120,18 @@ fn main() -> Result<()> {
             .with_context(|| format!("не удалось создать {}", dir.display()))?;
         keep.insert(dir, HashSet::new());
     }
+    // Every playlist twice: `.m3u8` (the web) and `.m3u` (Gopher), the same text.
     for (rel, text) in &playlists {
-        let path = args.out.join(rel);
-        write_atomic(&path, text.as_bytes())?;
-        if let (Some(dir), Some(name)) = (path.parent(), path.file_name().and_then(|n| n.to_str()))
-        {
-            keep.entry(dir.to_path_buf())
-                .or_default()
-                .insert(name.to_owned());
+        for rel in [rel.clone(), m3u::m3u_path(rel)] {
+            let path = args.out.join(&rel);
+            write_atomic(&path, text.as_bytes())?;
+            if let (Some(dir), Some(name)) =
+                (path.parent(), path.file_name().and_then(|n| n.to_str()))
+            {
+                keep.entry(dir.to_path_buf())
+                    .or_default()
+                    .insert(name.to_owned());
+            }
         }
     }
     for (dir, names) in &keep {
@@ -180,7 +184,7 @@ fn remove_stale(dir: &Path, keep: &HashSet<String>) -> Result<()> {
         let entry = entry?;
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
-        if name.ends_with(".m3u8") && !keep.contains(name) {
+        if (name.ends_with(".m3u8") || name.ends_with(".m3u")) && !keep.contains(name) {
             fs::remove_file(entry.path())
                 .with_context(|| format!("не удалось удалить {}", entry.path().display()))?;
             eprintln!("удалён устаревший плейлист: {name}");

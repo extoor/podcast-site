@@ -6,12 +6,14 @@
 //!
 //! Selectors:
 //! - `/`, `/podcast/<slug>/`, `/dir/<slug>/` — menus (`build/gopher/**/gophermap`);
-//! - `/playlists/…` — M3U8 playlists from `build/playlists`;
+//! - `/playlists/…` — playlists from `build/playlists`; menus link the `.m3u` twins
+//!   of the `.m3u8` files (see `podscan::m3u::m3u_path`);
 //! - `/media/<path>` — audio files from the media root.
 
 use crate::banner;
 use anyhow::Result;
 use podscan::catalog::{AudioInfo, Catalog, Episode};
+use podscan::m3u::m3u_path;
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -98,18 +100,39 @@ impl<'a> Menu<'a> {
     }
 }
 
-/// Display text: control characters (tabs, line breaks) become spaces and the
-/// text is cut to [`MAX_TEXT`] characters.
+/// The upper half (0x80..0xFF) of CP866, the code page of DOS and of Gopher
+/// browsers on the ZX Spectrum: they show anything else as "?".
+const CP866_HIGH: &str = "АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмноп░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀рстуфхцчшщъыьэюяЁёЄєЇїЎў°∙·√№¤■\u{a0}";
+
+/// A character as text that CP866 can show: itself, an ASCII stand-in, or `?`.
+fn to_cp866(c: char, out: &mut String) {
+    match c {
+        c if c.is_control() => out.push(' '),
+        c if c.is_ascii() || CP866_HIGH.contains(c) => out.push(c),
+        '—' | '–' | '‒' | '−' => out.push('-'),
+        '…' => out.push_str("..."),
+        '«' | '»' | '“' | '”' | '„' => out.push('"'),
+        '‘' | '’' | '‚' => out.push('\''),
+        '◄' | '←' => out.push('<'),
+        '►' | '→' => out.push('>'),
+        'І' => out.push('I'), // Ukrainian I is not in CP866: the Latin one looks the same
+        'і' => out.push('i'),
+        _ => out.push('?'),
+    }
+}
+
+/// Display text: control characters (tabs, line breaks) become spaces, characters
+/// outside CP866 become ASCII stand-ins, and the text is cut to [`MAX_TEXT`].
 fn fit(text: &str) -> String {
-    let clean: String = text
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
+    let mut clean = String::with_capacity(text.len());
+    for c in text.chars() {
+        to_cp866(c, &mut clean);
+    }
     if clean.chars().count() <= MAX_TEXT {
         return clean;
     }
-    let mut cut: String = clean.chars().take(MAX_TEXT - 1).collect();
-    cut.push('…');
+    let mut cut: String = clean.chars().take(MAX_TEXT - 3).collect();
+    cut.push_str("...");
     cut
 }
 
@@ -118,9 +141,37 @@ fn duration(secs: u64) -> String {
 }
 
 /// `MPEG-1 L3 192k` — short stream info for the episode line.
-fn audio_short(a: &AudioInfo) -> String {
-    let vbr = if a.vbr { " VBR" } else { "" };
-    format!("{} L{} {}k{vbr}", a.version, a.layer, a.bitrate_kbps)
+/// Size like a file list: `86.4 MB`, `431.4 KB`.
+fn size(bytes: u64) -> String {
+    #[allow(clippy::cast_precision_loss)] // sizes far below 2^52
+    let b = bytes as f64;
+    if bytes >= 1_000_000 {
+        format!("{:.1} MB", b / 1e6)
+    } else {
+        format!("{:.1} KB", b / 1e3)
+    }
+}
+
+/// Bitrate column: `192k`, `~160k` for the average of a VBR stream.
+fn bitrate(a: &AudioInfo) -> String {
+    let vbr = if a.vbr { "~" } else { "" };
+    format!("{vbr}{}k", a.bitrate_kbps)
+}
+
+/// `left` cut or padded so that `right` ends exactly at [`MAX_TEXT`]: columns line
+/// up from row to row. Both are display text (one column per character).
+fn columns(left: &str, right: &str) -> String {
+    let left = fit(left);
+    let room = MAX_TEXT.saturating_sub(right.chars().count() + 2);
+    let n = left.chars().count();
+    let left = if n > room {
+        let mut cut: String = left.chars().take(room.saturating_sub(3)).collect();
+        cut.push_str("...");
+        cut
+    } else {
+        format!("{left}{}", " ".repeat(room - n))
+    };
+    format!("{left}  {right}")
 }
 
 /// Generated menus: path relative to the gopher root → file contents.
@@ -147,7 +198,7 @@ pub fn menus(catalog: &Catalog, server: &Server) -> Result<Files> {
     m.banner(&banner);
     m.binary(
         &format!("Все эпизоды одним плейлистом [m3u] ({})", episodes.len()),
-        &format!("/{}", catalog.all_playlist),
+        &format!("/{}", m3u_path(&catalog.all_playlist)),
     );
     m.blank();
     m.heading("ПОДКАСТЫ");
@@ -188,8 +239,7 @@ pub fn menus(catalog: &Catalog, server: &Server) -> Result<Files> {
     Ok(files)
 }
 
-/// A list of episodes. Each episode takes three lines: the file over Gopher (type 9),
-/// its details, and the same file over HTTPS (type h).
+/// A list of episodes: one line each (type 9, the file over Gopher) with columns.
 fn episode_menu<'a>(
     server: &Server,
     banner: &[Vec<String>],
@@ -201,35 +251,32 @@ fn episode_menu<'a>(
     let width = episodes.len().to_string().len();
     let mut m = Menu::new(server);
     m.banner(banner);
-    m.menu("◄ все подкасты", "/");
+    m.menu("< все подкасты", "/");
     m.blank();
     m.heading(&title.to_uppercase());
     m.binary(
         &format!("Скачать плейлист [m3u] ({})", episodes.len()),
-        &format!("/{playlist}"),
+        &format!("/{}", m3u_path(playlist)),
     );
     m.blank();
     for (i, ep) in episodes.iter().enumerate() {
         let name = match &ep.artist {
-            Some(a) => format!("{a} — {}", ep.title),
+            Some(a) => format!("{a} - {}", ep.title),
             None => ep.title.clone(),
         };
+        // One line per episode, like a file list: name, then fixed-width columns
+        // date | duration | size | bitrate (a missing value keeps its column blank).
+        let right = format!(
+            "{:<10} | {:>7} | {:>8} | {:>5}",
+            ep.date.as_deref().map(crate::show_date).unwrap_or_default(),
+            ep.duration_secs.map(duration).unwrap_or_default(),
+            size(ep.size),
+            ep.audio.as_ref().map(bitrate).unwrap_or_default(),
+        );
         m.binary(
-            &format!("{:0width$}. {name}", i + 1),
+            &columns(&format!("{:0width$}. {name}", i + 1), &right),
             &format!("/media/{}", ep.path),
         );
-        let details: Vec<String> = [
-            ep.date.clone(),
-            ep.duration_secs.map(duration),
-            Some(format!("{} MB", (ep.size + 500_000) / 1_000_000)),
-            ep.audio.as_ref().map(audio_short),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        let indent = " ".repeat(width + 2);
-        m.info(&format!("{indent}{}", details.join(" · ")));
-        m.url(&format!("{indent}↳ по HTTPS"), &ep.url);
     }
     m.finish()
 }
@@ -275,6 +322,36 @@ mod tests {
         let long = "я".repeat(100);
         let f = fit(&long);
         assert_eq!(f.chars().count(), MAX_TEXT);
-        assert!(f.ends_with('…'));
+        assert!(f.ends_with("..."));
+    }
+
+    #[test]
+    fn episode_columns() {
+        let right = "20.07.2015 | 0:59:43 |  86.4 MB |  192k";
+        let short = columns("01. A - B", right);
+        let long = columns(&format!("02. {}", "x".repeat(80)), right);
+        for line in [&short, &long] {
+            assert_eq!(line.chars().count(), MAX_TEXT);
+            assert!(line.ends_with(right));
+        }
+        assert!(long.contains("...  20.07"));
+        assert_eq!(size(86_399_813), "86.4 MB");
+        assert_eq!(size(431_400), "431.4 KB");
+    }
+
+    #[test]
+    fn cp866_only() {
+        assert_eq!(
+            fit("Привет — ёж «рус» Їжак ░█ … ◄"),
+            "Привет - ёж \"рус\" Їжак ░█ ... <"
+        );
+        assert_eq!(fit("Київ і Іра ★"), "Київ i Iра ?");
+        for c in fit(&(0x20u32..0x3000)
+            .filter_map(char::from_u32)
+            .collect::<String>())
+        .chars()
+        {
+            assert!(c.is_ascii() || CP866_HIGH.contains(c), "{c:?}");
+        }
     }
 }
