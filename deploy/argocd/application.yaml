@@ -1,0 +1,28 @@
+# ArgoCD: the chart straight from this repository. The domain and the rest are set once,
+# in valuesObject. For the kustomize variant use path deploy/kustomize (ArgoCD needs
+# kustomize.buildOptions: --enable-helm in argocd-cm).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: podcast-site
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/extoor/podcast-site.git
+    targetRevision: main
+    path: deploy/helm/podcast-site
+    helm:
+      releaseName: podcast-site
+      valuesObject:
+        domain: podcasts.example.org
+        site:
+          storageClass: openebs-hostpath
+        gopher:
+          podAnnotations: {}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: podcasts
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true]

@@ -1,0 +1,33 @@
+{{- if .Values.networkPolicy.enabled }}
+# No pod of the site needs to open connections; web only takes them from Traefik.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ps.fullname" . }}-deny-egress
+  labels:
+    {{- include "ps.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ps.fullname" . }}-web-from-traefik
+  labels:
+    {{- include "ps.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ps.selector" (list . "web") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.traefikNamespace }}
+      ports:
+        - port: 8080
+{{- end }}

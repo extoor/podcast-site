@@ -1,0 +1,12 @@
+apiVersion: v2
+name: podcast-site
+description: >-
+  A podcast catalog over Gopher and HTTPS: a CronJob builds the site from the media
+  library, gopherd serves Gopher, Caddy serves the web behind Traefik with a
+  cert-manager certificate.
+type: application
+version: 0.1.0
+appVersion: "latest"
+home: https://github.com/extoor/podcast-site
+sources:
+  - https://github.com/extoor/podcast-site

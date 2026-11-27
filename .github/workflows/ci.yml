@@ -71,3 +71,20 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.30.1 \
             git /repo --log-opts=--all --no-banner --redact --verbose
+
+  helm:
+    name: helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: helm lint, render, kubeconform (with cert-manager and Traefik CRDs)
+        run: |
+          docker run --rm -v "$PWD/deploy:/deploy:ro" --entrypoint sh alpine/helm:3.22.1 -c '
+            set -e
+            helm lint --strict /deploy/helm/podcast-site -f /deploy/helm/podcast-site/ci/test-values.yaml >&2
+            helm template ps /deploy/helm/podcast-site -n podcasts -f /deploy/helm/podcast-site/ci/test-values.yaml
+          ' > rendered.yaml
+          docker run --rm -v "$PWD:/w:ro" ghcr.io/yannh/kubeconform:v0.8.0 -strict -summary \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            /w/rendered.yaml

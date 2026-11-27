@@ -22,7 +22,7 @@
 - Репозиторий: https://github.com/extoor/podcast-site (публичный, remote `github`). Ветка `main`
   защищена ruleset'ом: только через pull request, подписанные коммиты, без force push, слияние
   squash/merge и только с зелёными проверками (`fmt, clippy, tests`, `cargo audit, cargo deny`,
-  `inlined scripts, Caddyfile`, `no secrets in git`, `generator`, `gopherd`, `web`).
+  `inlined scripts, Caddyfile`, `no secrets in git`, `helm chart`, `generator`, `gopherd`, `web`).
   Порядок работы: ветка → push → `gh pr create` → `gh pr merge --squash --auto`.
   Remote `origin` (`git.tuhu.io`) — старая копия до переписывания истории, туда не пушим.
 
@@ -178,11 +178,19 @@
        Все образы rootless: UID/GID 65532 числом (иначе runAsNonRoot в Kubernetes не проверит),
        без capabilities, корневая ФС только на чтение. В dev-контейнере свой Docker
        (фича docker-in-docker) для `docker buildx`. Проверка живости — `gopherd --check <адрес>`.
-7. [ ] Kubernetes (radxa — только разработка, работает всё в кластере). Решено:
-       - деплой — Helm-чарт в репозитории, ArgoCD; образы — GHCR (собирает GitHub Actions);
+7. [~] Kubernetes (radxa — только разработка, работает всё в кластере). Helm-чарт
+       `deploy/helm/podcast-site` готов (проверка в CI — job `helm chart`: lint + kubeconform);
+       осталось — первый деплой. Решено:
+       - деплой — Helm-чарт в репозитории, ArgoCD (`deploy/argocd/application.yaml`), по желанию
+         kustomize поверх чарта (`deploy/kustomize/`, `--enable-helm`); образы — GHCR;
+       - домен — только `domain` в values (+ `extraDomains`): из него Certificate, IngressRoute,
+         base URL плейлистов и `gopher.<domain>` по умолчанию; нигде не дублируется;
        - аудио — rclone CSI-драйвер (PV `crypt:music/Podcast`, ReadOnlyMany, конфиг в Secret);
-       - собранный сайт — local volume (RWO = одна нода: generator, gopherd и web на ней);
-       - веб — Service + Ingress (TLS там), Caddy внутри на 8080;
+       - собранный сайт — PVC RWO, `site.storageClass` (по умолчанию `openebs-hostpath`) —
+         одна нода: generator, gopherd и web на ней;
+       - веб — Service + Traefik IngressRoute (`web` → middleware redirect-scheme, `websecure`
+         → geoblock, crowdsec-bouncer; ns traefik) + cert-manager Certificate (ClusterIssuer
+         zerossl-production), Caddy внутри на 8080;
        - Gopher — Multus macvlan со своим IP в DMZ (аннотация `k8s.v1.cni.cncf.io/networks`,
          например `<gopher-ip>`), gopherd слушает 70 без root через sysctl
          `net.ipv4.ip_unprivileged_port_start=0`; в меню — DNS-имя этого IP и порт 70;

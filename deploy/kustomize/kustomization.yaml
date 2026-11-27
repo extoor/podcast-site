@@ -1,0 +1,13 @@
+# Optional: the same chart through kustomize (`kustomize build --enable-helm`), for adding
+# your own patches on top. The settings, the domain included, live only in values.yaml.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: podcasts
+helmGlobals:
+  chartHome: ../helm
+helmCharts:
+  - name: podcast-site
+    releaseName: podcast-site
+    namespace: podcasts
+    valuesFile: values.yaml
+# patches: []

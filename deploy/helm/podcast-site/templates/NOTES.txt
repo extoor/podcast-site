@@ -1,0 +1,15 @@
+podcast-site {{ .Chart.Version }}, images {{ .Values.image.registry }}/*:{{ .Values.image.tag }}
+
+Web:    https://{{ include "ps.domain" . }}/
+{{- if .Values.gopher.enabled }}
+Gopher: gopher://{{ include "ps.gopherHost" . }}:{{ .Values.gopher.port }}/  (DNS of this name → the pod's own address)
+{{- end }}
+
+The site is built by the CronJob {{ include "ps.fullname" . }}-generator ({{ .Values.generator.schedule }}).
+Build it now:
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "ps.fullname" . }}-generator {{ include "ps.fullname" . }}-build-now
+{{- if eq .Values.media.type "csi" }}
+
+The media volume needs the Secret {{ .Values.media.csi.nodePublishSecretRef.name }} with the rclone configuration
+(made outside this chart, never in git).
+{{- end }}

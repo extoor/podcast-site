@@ -1,0 +1,125 @@
+# podcast-site — values. Secrets never go here (the repository is public): the rclone
+# configuration lives in a Kubernetes Secret created separately, see media.csi.
+
+# The site's domain: written once, used everywhere — certificate, Traefik routes, the
+# playlist URLs (https://<domain>/media/…) and the default Gopher host name.
+domain: podcasts.example.org
+# Other names for the same site (in the certificate and the routes as well).
+extraDomains: []
+
+image:
+  registry: ghcr.io/extoor/podcast-site
+  # For production pin an immutable tag: sha-<commit> or weekly-<date> (see images.yml).
+  tag: latest
+  pullPolicy: Always
+imagePullSecrets: []
+
+# --- web: Caddy, behind Traefik --------------------------------------------------------
+web:
+  replicas: 1
+  resources:
+    requests: { cpu: 20m, memory: 32Mi }
+    limits: { memory: 128Mi }
+
+certificate:
+  enabled: true
+  issuerRef:
+    name: zerossl-production
+    kind: ClusterIssuer
+  # Secret with the certificate; default "<release>-tls".
+  secretName: ""
+
+ingressRoute:
+  enabled: true
+  # entry point → middlewares ({name, namespace}); the http entry point redirects to https
+  web:
+    entryPoints: [web]
+    middlewares:
+      - name: redirect-scheme
+        namespace: traefik
+  websecure:
+    entryPoints: [websecure]
+    middlewares:
+      - name: geoblock
+        namespace: traefik
+      - name: crowdsec-bouncer
+        namespace: traefik
+
+# --- gopherd: own IP in the DMZ (Multus macvlan) ---------------------------------------
+gopher:
+  enabled: true
+  # The name in every Gopher menu line; default "gopher.<domain>". Point its DNS record
+  # at the pod's own address (podAnnotations below).
+  host: ""
+  port: 70
+  maxConns: 256
+  # e.g. the Multus network with a static IP:
+  #   k8s.v1.cni.cncf.io/networks: |
+  #     [{"name": "macvlan-dmz-static", "namespace": "default", "interface": "dmz",
+  #       "ips": ["<gopher-ip>/24"]}]
+  podAnnotations: {}
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { memory: 64Mi }
+
+# --- generator: scans the library, builds the site -------------------------------------
+generator:
+  schedule: "17 */6 * * *"     # every 6 hours
+  # Also build once right after install / upgrade, so the servers have a site at once.
+  runOnInstall: true
+  # podcasts.toml to use instead of the one in the image (contents, not a path).
+  rules: ""
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+# --- storage ---------------------------------------------------------------------------
+# The built site: written by the generator, read by gopherd and Caddy. ReadWriteOnce is
+# "one node": with a node-local class (openebs-hostpath) all three pods land on that node.
+site:
+  storageClass: openebs-hostpath
+  size: 1Gi
+  accessMode: ReadWriteOnce
+
+# The audio library, read-only in every pod. One of:
+#   csi          a PersistentVolume of a CSI driver, e.g. csi-rclone (the default)
+#   existingClaim  a PVC made elsewhere (NFS, SMB, …)
+media:
+  type: csi
+  size: 1Ti
+  csi:
+    driver: csi-rclone
+    volumeHandle: podcast-site-media
+    # attributes of the driver; for csi-rclone: the remote and the path in it
+    volumeAttributes:
+      remote: crypt
+      remotePath: music/Podcast
+    # the Secret with the rclone configuration (with the crypt keys): created
+    # separately, never in git
+    nodePublishSecretRef:
+      name: podcast-site-rclone
+      namespace: ""            # default: the release namespace
+  existingClaim: ""
+
+# --- pods ------------------------------------------------------------------------------
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Pods need no egress at all; web takes traffic only from Traefik.
+networkPolicy:
+  enabled: false
+  traefikNamespace: traefik

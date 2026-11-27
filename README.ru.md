@@ -102,13 +102,41 @@ musl-файлы (линкует `rust-lld` из тулчейна Rust; все з
 несколько мегабайт. Генератор настраивается переменными `PODCAST_BASE_URL`, `GOPHER_HOST`,
 `GOPHER_PORT`; `gopherd --check <адрес>` — проверка живости.
 
+## Kubernetes
+
+Всё разворачивает Helm-чарт `deploy/helm/podcast-site`:
+
+- домен пишется один раз — `domain` (и при желании `extraDomains`); из него берутся
+  `Certificate` cert-manager, оба `IngressRoute` Traefik (`web` перенаправляет на HTTPS,
+  `websecure` — с вашими middleware) и базовый адрес в плейлистах;
+- `generator` — CronJob (`generator.schedule`) и Job после каждой установки/обновления;
+  собранный сайт лежит на PVC (`site.storageClass`, по умолчанию `openebs-hostpath`, поэтому
+  три пода на одной ноде);
+- аудио — PV rclone CSI-драйвера только на чтение (`crypt:music/Podcast`); его конфигурация —
+  Secret, создаваемый вне чарта (`media.csi.nodePublishSecretRef`), либо свой claim через
+  `media.type: existingClaim`;
+- `gopherd` получает свой адрес через Multus (`gopher.podAnnotations`) и слушает порт 70
+  без root (sysctl пода `net.ipv4.ip_unprivileged_port_start=0`); меню ссылаются на
+  `gopher.host` (по умолчанию `gopher.<domain>`);
+- все поды проходят Pod Security «restricted»; `networkPolicy.enabled` запрещает исходящие
+  соединения и пускает к веб-поду только Traefik.
+
+```sh
+helm install podcast-site deploy/helm/podcast-site -n podcasts --create-namespace \
+  --set domain=podcasts.example.org
+```
+
+Там же: `deploy/kustomize/` — тот же чарт через kustomize (`kustomize build --enable-helm`)
+для своих патчей, и `deploy/argocd/application.yaml`.
+
 ## Непрерывная интеграция
 
 GitHub Actions (`.github/workflows/`):
 
 - `ci.yml` на каждый push и pull request: `cargo fmt`, `clippy -D warnings`, тесты,
   `cargo audit`, `cargo deny`, встраиваемые JS-модули, `Caddyfile` с последним Caddy и
-  gitleaks по всей истории (в публичном репозитории не должно быть секретов).
+  gitleaks по всей истории (в публичном репозитории не должно быть секретов) и Helm-чарт
+  (`helm lint`, kubeconform со схемами cert-manager и Traefik).
 - `images.yml`: три образа под amd64 + arm64 в `ghcr.io/<owner>/<repo>/{generator,gopherd,web}`
   из `main` и тегов `v*` (для pull request — только сборка); раз в неделю образы
   пересобираются с последним Caddy и свежими базовыми образами.
@@ -131,8 +159,8 @@ GitHub Actions (`.github/workflows/`):
 ## Состояние
 
 Работает: сканирование, плейлисты, меню и сервер Gopher, HTML-страницы, плеер, Caddy
-в разработке. Дальше: Docker-образы (multi-stage, без root, файловая система только
-на чтение), затем Kubernetes. Открыт вопрос: домен сайта.
+в разработке, multi-arch rootless-образы в GHCR, Helm-чарт. Дальше: первый деплой в
+кластер. Открыт вопрос: домен сайта.
 
 ## Лицензия
 

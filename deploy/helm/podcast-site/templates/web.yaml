@@ -1,0 +1,61 @@
+# Caddy: pages, playlists, audio; plain HTTP on 8080, TLS ends at Traefik.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ps.fullname" . }}-web
+  labels:
+    {{- include "ps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector:
+    matchLabels:
+      {{- include "ps.selector" (list . "web") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ps.selector" (list . "web") | nindent 8 }}
+    spec:
+      {{- include "ps.podSpec" . | nindent 6 }}
+      containers:
+        - name: caddy
+          image: {{ include "ps.image" (list . "web") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /robots.txt, port: http }
+            periodSeconds: 10
+          # alive = listening; ready = the site is built (robots.txt is part of it)
+          livenessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 30
+          volumeMounts:
+            {{- include "ps.mounts" (list . "ro") | nindent 12 }}
+            - name: tmp       # Caddy's own data and config (XDG_* point here)
+              mountPath: /tmp
+      volumes:
+        {{- include "ps.volumes" (list .) | nindent 8 }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ps.fullname" . }}-web
+  labels:
+    {{- include "ps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  selector:
+    {{- include "ps.selector" (list . "web") | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

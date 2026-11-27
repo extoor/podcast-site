@@ -1,0 +1,10 @@
+# Values for the chart (see ../helm/podcast-site/values.yaml for all of them).
+domain: podcasts.example.org        # the one place the domain is written
+# extraDomains: [www.podcasts.example.org]
+site:
+  storageClass: openebs-hostpath
+gopher:
+  host: ""                          # default gopher.<domain>
+  podAnnotations: {}
+  #  k8s.v1.cni.cncf.io/networks: |
+  #    [{"name": "macvlan-dmz", "namespace": "default", "ips": ["<gopher-ip>/24"]}]
