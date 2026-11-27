@@ -15,10 +15,10 @@ One file, no dependencies; it adds its own styles.
 ║ Podcast: Zebra                                                       ║
 ║ Date:    04.04.2015    Track: 1/25      Size: 86 MB                  ║
 ╟──────────────────────────────────────────────────────────────────────╢
-║ MPEG-1 Layer III  192 kbps CBR  44.1 kHz  Stereo                     ║
+║ Type:    MPEG-1 Layer III  192 kbps CBR  44.1 kHz  Stereo            ║
 ║ Decoder: Chrome   Buf: █████████████ 02:19  Vol: █████████████   0dB ║
-║                                                                      ║
-║ ║ 00:02 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 59:59 ║
+╟──────────────────────────────────────────────────────────────────────╢
+║ ► 00:02 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 59:59 ║
 ╟──────────────────────────────────────────────────────────────────────╢
 ║ Spc:next | P:prev | ←→↑↓:seek | S:pause | +-:vol | A:spec | Esc:exit ║
 ╚══════════════════════════════════════════════════════════════════════╝
@@ -59,7 +59,7 @@ Taken from the link's `data-*` attributes. All of them are optional.
 | `data-podcast` | Podcast      | empty                         |
 | `data-date`    | Date         | empty                         |
 | `data-size`    | Size (bytes) | empty                         |
-| `data-format`  | stream line  | bitrate estimated from size and duration |
+| `data-format`  | Type         | bitrate estimated from size and duration |
 
 `data-format` is a ready-made string such as `MPEG-1 Layer III  192 kbps CBR  44.1 kHz  Stereo`.
 Browsers do not expose stream parameters, so they have to be extracted on the server

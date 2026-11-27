@@ -193,7 +193,7 @@
             L("Size: "), V(size > 0 ? `${Math.round(size / 1e6)} MB` : "")),
         sep(),
         // stream info from the page (e.g. parsed from the MPEG header); else an estimate
-        row(V(fit(a.format || (kbps ? `${kbps} kbps` : ""), W - 2))),
+        row(L("Type:    "), V(fit(a.format || (kbps ? `${kbps} kbps` : ""), W - 11))),
         // decoder left, buffer (time buffered ahead, as on the progress line) in the
         // middle, volume right: the free columns are shared out between them
         row(...spread(
@@ -201,10 +201,12 @@
           [L("Buf: "), seg(bar(buf, 13), "tp-lb"), V(" " + time(ahead))],
           [L("Vol: "), seg(bar(audio.volume, 13), "tp-lb tp-slider", 'data-act="vol"'), V(" " + db.padStart(5))],
         )),
-        row(),
+        // the playback section: progress (and the analyzer), between two separators
+        sep(),
         row(seg(audio.paused ? "║" : "►", "tp-lb tp-st"), L(" " + ct + " "),
             seg(bar(audio.currentTime / dur, pw), "tp-lb tp-slider", 'data-act="seek"'), L(" " + dt)),
-        ...(spec.on && spec.shown ? [row(), `<span class="tp-specbox">${Array.from({ length: spec.rows }, (_, r) =>
+        // the analyzer belongs to the playback section: no separator above it
+        ...(spec.on && spec.shown ? [`<span class="tp-specbox">${Array.from({ length: spec.rows }, (_, r) =>
           `<span class="tp-fr">║</span> <span class="tp-spec">${spec.line(r)}</span> <span class="tp-fr">║</span>`).join("\n")}</span>`] : []),
         sep(),
         row(...keys(["Spc", "next"], ["P", "prev"], ["←→↑↓", "seek"], ["S", "pause"], ["+-", "vol"],
