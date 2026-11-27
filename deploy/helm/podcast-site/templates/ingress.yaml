@@ -35,6 +35,10 @@ spec:
       services:
         - name: {{ include "ps.fullname" $ }}-web
           port: http
+      {{- with $ep.middlewares }}
+      middlewares:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
   {{- if eq $name "websecure" }}
   tls:
     secretName: {{ include "ps.tlsSecret" $ }}
