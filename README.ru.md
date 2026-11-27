@@ -136,4 +136,4 @@ GitHub Actions (`.github/workflows/`):
 
 ## Лицензия
 
-MIT (как указано в файлах `Cargo.toml`).
+[MIT](LICENSE).

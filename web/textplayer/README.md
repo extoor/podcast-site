@@ -129,4 +129,4 @@ otherwise the frames fall apart.
 
 ## License
 
-MIT.
+MIT, see [LICENSE](../../LICENSE).

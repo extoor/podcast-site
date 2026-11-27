@@ -137,4 +137,4 @@ then Kubernetes. Still open: the site's domain.
 
 ## License
 
-MIT (as declared in the `Cargo.toml` files).
+[MIT](LICENSE).
