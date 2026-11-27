@@ -267,8 +267,8 @@ GitHub Actions (`.github/workflows/`):
 ## Состояние
 
 Работает: сканирование, плейлисты, меню и сервер Gopher, HTML-страницы, плеер, Caddy
-в разработке, multi-arch rootless-образы в GHCR, Helm-чарт. Дальше: первый деплой в
-кластер.
+в разработке, multi-arch rootless-образы в GHCR, Helm-чарт. Сайт работает в Kubernetes:
+веб по HTTPS и Gopher на порту 70 собственного адреса.
 
 ## Лицензия
 

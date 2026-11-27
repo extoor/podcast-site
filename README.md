@@ -269,8 +269,8 @@ GitHub Actions (`.github/workflows/`):
 ## Status
 
 Working: scanning, playlists, Gopher menus and server, HTML pages, the player, Caddy
-in development, multi-arch rootless images in GHCR, the Helm chart. Next: the first deploy
-to the cluster.
+in development, multi-arch rootless images in GHCR, the Helm chart. The site runs in
+Kubernetes: the web over HTTPS and Gopher on port 70 of its own address.
 
 ## License
 
