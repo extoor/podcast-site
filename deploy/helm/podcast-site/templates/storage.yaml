@@ -15,7 +15,7 @@ spec:
       storage: {{ .Values.site.size }}
 {{- if eq .Values.media.type "csi" }}
 ---
-# The audio library through a CSI driver (csi-rclone by default), read-only. The rclone
+# The audio library through a CSI driver (veloxpack csi-driver-rclone by default), read-only. The rclone
 # configuration with the crypt keys is in a Secret made outside this chart.
 apiVersion: v1
 kind: PersistentVolume
@@ -32,6 +32,10 @@ spec:
   claimRef:
     namespace: {{ .Release.Namespace }}
     name: {{ include "ps.fullname" . }}-media
+  {{- with .Values.media.csi.mountOptions }}
+  mountOptions:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   csi:
     driver: {{ .Values.media.csi.driver }}
     volumeHandle: {{ .Values.media.csi.volumeHandle }}

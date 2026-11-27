@@ -11,3 +11,6 @@ generator:
     name = "Zebra"
 networkPolicy:
   enabled: true
+media:
+  csi:
+    mountOptions: [dir-cache-time=1h]

@@ -83,14 +83,19 @@ media:
   type: csi
   size: 1Ti
   csi:
-    driver: csi-rclone
+    # github.com/veloxpack/csi-driver-rclone; it mounts with uid/gid = the pods' fsGroup
+    # and allow_other, so the non-root pods can read the volume
+    driver: rclone.csi.veloxpack.io
     volumeHandle: podcast-site-media
-    # attributes of the driver; for csi-rclone: the remote and the path in it
+    # the remote (a section of configData) and the path in it
     volumeAttributes:
       remote: crypt
       remotePath: music/Podcast
-    # the Secret with the rclone configuration (with the crypt keys): created
-    # separately, never in git
+    # rclone mount flags without "--", e.g. [dir-cache-time=1h, vfs-read-chunk-size=1M];
+    # read-only is added by the driver itself
+    mountOptions: []
+    # the Secret with the key configData: the whole rclone.conf (the crypt section and the
+    # remote under it, with the keys); created separately, never in git
     nodePublishSecretRef:
       name: podcast-site-rclone
       namespace: ""            # default: the release namespace

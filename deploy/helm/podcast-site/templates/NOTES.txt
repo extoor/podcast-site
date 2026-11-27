@@ -10,6 +10,7 @@ Build it now:
   kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "ps.fullname" . }}-generator {{ include "ps.fullname" . }}-build-now
 {{- if eq .Values.media.type "csi" }}
 
-The media volume needs the Secret {{ .Values.media.csi.nodePublishSecretRef.name }} with the rclone configuration
-(made outside this chart, never in git).
+The media volume needs the Secret {{ .Values.media.csi.nodePublishSecretRef.name }}, key configData = the whole rclone.conf
+(made outside this chart, never in git):
+  kubectl -n {{ .Release.Namespace }} create secret generic {{ .Values.media.csi.nodePublishSecretRef.name }} --from-file=configData=rclone.conf
 {{- end }}
