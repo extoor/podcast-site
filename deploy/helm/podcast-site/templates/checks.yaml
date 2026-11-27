@@ -1,0 +1,17 @@
+{{- /*
+Pre-flight checks against the live cluster. They run only where Helm can read it
+(install/upgrade); helm template, helm lint and ArgoCD get empty lookups and skip them.
+*/ -}}
+{{- $online := lookup "v1" "Namespace" "" "kube-system" -}}
+{{- if and $online (eq .Values.media.type "csi") .Values.media.csi.nodePublishSecretRef -}}
+{{- $ref := .Values.media.csi.nodePublishSecretRef -}}
+{{- $ns := default .Release.Namespace $ref.namespace -}}
+{{- $secret := lookup "v1" "Secret" $ns $ref.name -}}
+{{- $fix := printf "kubectl -n %s create secret generic %s --from-file=configData=rclone.conf" $ns $ref.name -}}
+{{- if not $secret -}}
+{{- fail (printf "\n\nНет Secret %s/%s с конфигурацией rclone. Создайте его:\n  %s\n" $ns $ref.name $fix) -}}
+{{- end -}}
+{{- if and (not (hasKey ($secret.data | default dict) "configData")) (not (hasKey (.Values.media.csi.volumeAttributes | default dict) "configData")) -}}
+{{- fail (printf "\n\nВ Secret %s/%s нет ключа configData (есть: %s) — драйвер rclone читает только его.\nПересоздайте Secret:\n  kubectl -n %s delete secret %s\n  %s\n" $ns $ref.name (keys ($secret.data | default dict) | sortAlpha | join ", ") $ns $ref.name $fix) -}}
+{{- end -}}
+{{- end -}}

@@ -116,7 +116,8 @@ musl-файлы (линкует `rust-lld` из тулчейна Rust; все з
   ([veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone),
   `crypt:music/Podcasts`); его конфигурация (ключ `configData`, весь `rclone.conf`) —
   Secret, создаваемый вне чарта (`media.csi.nodePublishSecretRef`), либо свой claim через
-  `media.type: existingClaim`;
+  `media.type: existingClaim`. `helm install`/`upgrade` останавливается, если Secret нет или в
+  нём нет ключа `configData`;
 - `gopherd` получает свой адрес через Multus (`gopher.podAnnotations`) и слушает порт 70
   без root (sysctl пода `net.ipv4.ip_unprivileged_port_start=0`); меню ссылаются на
   `gopher.host` (по умолчанию `domain` — то же имя, что у веба);
