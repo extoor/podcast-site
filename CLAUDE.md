@@ -24,6 +24,8 @@
   squash/merge и только с зелёными проверками (`fmt, clippy, tests`, `cargo audit, cargo deny`,
   `inlined scripts, Caddyfile`, `no secrets in git`, `helm chart`, `generator`, `gopherd`, `web`).
   Порядок работы: ветка → push → `gh pr create` → `gh pr merge --squash --auto`.
+  Коммиты — редко, связанные правки одним коммитом, и только после вопроса «сделать коммит?»;
+  push (а с ним PR и слияние) — только после отдельного вопроса «сделать push?».
   Remote `origin` (`git.tuhu.io`) — старая копия до переписывания истории, туда не пушим.
 
 ## Архитектура
