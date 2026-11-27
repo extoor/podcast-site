@@ -20,7 +20,14 @@ spec:
     metadata:
       labels:
         {{- include "ps.selector" (list . "gopherd") | nindent 8 }}
-      {{- with .Values.gopher.podAnnotations }}
+      {{- $ann := deepCopy (.Values.gopher.podAnnotations | default dict) }}
+      {{- with .Values.gopher.network }}
+      {{- if .enabled }}
+      {{- $net := dict "name" (printf "%s-gopher" (include "ps.fullname" $)) "namespace" $.Release.Namespace "interface" .interface "ips" (list (required "gopher.network.address is required" .address)) }}
+      {{- $_ := set $ann "k8s.v1.cni.cncf.io/networks" (list $net | toJson) }}
+      {{- end }}
+      {{- end }}
+      {{- with $ann }}
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -62,4 +69,22 @@ spec:
             {{- include "ps.mounts" (list . "ro") | nindent 12 }}
       volumes:
         {{- include "ps.volumes" (list .) | nindent 8 }}
+{{- if .Values.gopher.network.enabled }}
+---
+# gopherd's own network (see gopher.network in values.yaml)
+{{- $n := .Values.gopher.network }}
+{{- $ipam := dict "type" "static" }}
+{{- with $n.gateway }}
+{{- $_ := set $ipam "routes" (list (dict "dst" "0.0.0.0/1" "gw" .) (dict "dst" "128.0.0.0/1" "gw" .)) }}
+{{- end }}
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: {{ include "ps.fullname" . }}-gopher
+  labels:
+    {{- include "ps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gopherd
+spec:
+  config: {{ dict "cniVersion" "1.0.0" "type" "macvlan" "master" (required "gopher.network.master is required" $n.master) "mode" $n.mode "ipam" $ipam | toJson | quote }}
+{{- end }}
 {{- end }}

@@ -120,7 +120,7 @@ The Helm chart `deploy/helm/podcast-site` deploys everything:
   a Secret made outside the chart (`media.csi.nodePublishSecretRef`), or use your own
   claim with `media.type: existingClaim`. `helm install`/`upgrade` stops if the Secret or its
   `configData` key is missing;
-- `gopherd` gets its own address through Multus (`gopher.podAnnotations`) and listens on
+- `gopherd` gets its own address through Multus (`gopher.network`) and listens on
   port 70 without root (the pod sysctl `net.ipv4.ip_unprivileged_port_start=0`); menus
   point to `gopher.host` (default: `domain`, the same name as the web);
 - every pod passes Pod Security "restricted"; `networkPolicy.enabled` forbids egress and lets
@@ -134,7 +134,8 @@ The Helm chart `deploy/helm/podcast-site` deploys everything:
   `zerossl-production`);
 - the rclone CSI driver [veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone);
 - a StorageClass for the built site (`site.storageClass`, default `openebs-hostpath`);
-- for Gopher: Multus and a macvlan NetworkAttachmentDefinition (or `gopher.enabled: false`).
+- for Gopher: Multus with the macvlan and static CNI plugins (the chart makes the
+  NetworkAttachmentDefinition), or `gopher.enabled: false`.
 
 ### 1. Your values, outside git
 
@@ -144,10 +145,11 @@ which is in `.gitignore`. For example `deploy/local/values.yaml`:
 ```yaml
 domain: podcasts.example.org
 gopher:
-  podAnnotations:
-    k8s.v1.cni.cncf.io/networks: |
-      [{"name": "macvlan-dmz", "namespace": "default", "interface": "dmz",
-        "ips": ["192.0.2.41/24"], "default-route": ["192.0.2.1"]}]
+  network:                 # the pod's own address in the DMZ (Multus macvlan)
+    enabled: true
+    master: eth0.100       # the node interface (here VLAN 100 on eth0)
+    address: 192.0.2.41/24
+    gateway: 192.0.2.1
 web:
   trustedProxies: [10.42.0.0/16]   # pod CIDR of Traefik; default private_ranges
 ```
@@ -186,8 +188,12 @@ kubectl -n podcasts logs deploy/podcast-site-web | tail -3
 - DNS of `domain` points to the public address; ports 80 and 443 go to Traefik (the HTTP-01
   check of cert-manager needs port 80).
 - Port 70 of the public address is forwarded to the Gopher pod's own address. Its answers must
-  leave through the same interface: either SNAT on the router, or `"default-route"` in the
-  Multus annotation (as above); gopherd needs no cluster network.
+  leave through the same interface, or the connection never opens. With
+  `gopher.network.gateway` the chart routes `0.0.0.0/1` and `128.0.0.0/1` through it: more
+  specific than the pod's default route on `eth0`, which Multus' `default-route` does not
+  always replace (it did not with k3s/flannel). The cluster network stays on `eth0`. SNAT on the
+  router works too. To look inside the distroless pod:
+  `kubectl debug -it <pod> --image=nicolaka/netshoot --profile=netadmin -- ip route`.
 - The visitor's address reaches the access log (`client_ip`) only if Traefik sees it
   (`externalTrafficPolicy: Local` on its Service, no SNAT before it) and its pods are in
   `web.trustedProxies`.
