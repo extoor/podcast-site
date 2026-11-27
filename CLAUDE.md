@@ -189,6 +189,8 @@
          PV `crypt:music/Podcasts`, ReadOnlyMany, конфиг — Secret с ключом `configData` (именно
          так, не `rclone.conf`): секции `[crypt]` и S3 под ней; fsGroup read-only тома kubelet
          драйверу не передаёт — чарт сам добавляет `allow-other`, `uid`/`gid` из podSecurityContext;
+         `templates/checks.yaml` (lookup) при install/upgrade останавливает установку без Secret
+         или без `configData` (в template/lint/ArgoCD проверка пропускается);
        - собранный сайт — PVC RWO, `site.storageClass` (по умолчанию `openebs-hostpath`) —
          одна нода: generator, gopherd и web на ней;
        - веб — Service + Traefik IngressRoute (`web` — порт 80, только

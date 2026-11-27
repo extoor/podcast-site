@@ -117,7 +117,8 @@ The Helm chart `deploy/helm/podcast-site` deploys everything:
   ([veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone),
   `crypt:music/Podcasts`); its configuration (key `configData`, the whole `rclone.conf`) is
   a Secret made outside the chart (`media.csi.nodePublishSecretRef`), or use your own
-  claim with `media.type: existingClaim`;
+  claim with `media.type: existingClaim`. `helm install`/`upgrade` stops if the Secret or its
+  `configData` key is missing;
 - `gopherd` gets its own address through Multus (`gopher.podAnnotations`) and listens on
   port 70 without root (the pod sysctl `net.ipv4.ip_unprivileged_port_start=0`); menus
   point to `gopher.host` (default: `domain`, the same name as the web);
