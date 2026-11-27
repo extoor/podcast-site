@@ -17,7 +17,33 @@ const USAGE: &str = "\
                          (по умолчанию build)
   --media <ПАПКА>        корень медиа (по умолчанию /media/podcasts)
   --max-conns <N>        одновременных соединений (по умолчанию 256)
+  --check <АДРЕС:ПОРТ>   проверить работающий сервер и выйти: код 0, если он отдал
+                         корневое меню (для проб Kubernetes и HEALTHCHECK)
   -h, --help             эта справка";
+
+/// Health check: asks `addr` for the root menu. The server is healthy only if a real
+/// menu comes back (ends with ".\r\n", not an error line), within the time limit.
+fn check(addr: &str) -> Result<()> {
+    use std::io::{Read, Write};
+    use std::net::{TcpStream, ToSocketAddrs};
+    let limit = Duration::from_secs(3);
+    let target = addr
+        .to_socket_addrs()
+        .with_context(|| format!("некорректный адрес: {addr}"))?
+        .next()
+        .with_context(|| format!("адрес не найден: {addr}"))?;
+    let mut s = TcpStream::connect_timeout(&target, limit)
+        .with_context(|| format!("нет соединения с {addr}"))?;
+    s.set_read_timeout(Some(limit))?;
+    s.set_write_timeout(Some(limit))?;
+    s.write_all(b"\r\n")?;
+    let mut menu = Vec::new();
+    s.take(1 << 20).read_to_end(&mut menu)?;
+    if menu.starts_with(b"3") || !menu.ends_with(b".\r\n") {
+        bail!("{addr} ответил не меню ({} байт)", menu.len());
+    }
+    Ok(())
+}
 
 fn parse_args() -> Result<Option<(String, Config)>> {
     let mut listen = "127.0.0.1:7070".to_owned();
@@ -32,6 +58,12 @@ fn parse_args() -> Result<Option<(String, Config)>> {
             "--listen" => listen = value("--listen")?,
             "--build" => build = value("--build")?.into(),
             "--media" => media = value("--media")?.into(),
+            "--check" => {
+                let addr = value("--check")?;
+                check(&addr)?;
+                println!("ок: {addr}");
+                return Ok(None);
+            }
             "--max-conns" => {
                 let v = value("--max-conns")?;
                 max_conns = v

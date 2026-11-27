@@ -4,7 +4,10 @@
 
   "features": {
     "ghcr.io/devcontainers/features/node:1": {},
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
+    // Docker of its own inside the container (isolated from the host's Docker), for
+    // building the multi-arch images: docker buildx. Needs a privileged container.
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
   
   "overrideFeatureInstallOrder": [
@@ -31,7 +34,7 @@
     "8080": { "label": "HTTP (dev)" }
   },
 
-  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.claude /usr/local/cargo/registry && sudo apt-get update -q && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q caddy chromium && cargo install cargo-audit cargo-deny --locked && gpg --import .devcontainer/signing-key.asc && echo 'E1D456A80E71B7AF640F9B5A9D5A6C199F1B5404:6:' | gpg --import-ownertrust",
+  "postCreateCommand": "sh .devcontainer/post-create.sh",
 
   "customizations": {
     "vscode": {

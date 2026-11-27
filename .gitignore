@@ -1,2 +1,31 @@
 /target
 /build
+
+# --- Secrets never go into git (the repository is public) -----------------------------
+# Passwords, keys, tokens and configs that hold them live outside the repository:
+# GitHub Actions secrets, Kubernetes Secrets, the developer's own files.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.kdbx
+id_rsa*
+id_ed25519*
+*.gpg
+!.devcontainer/signing-key.asc
+secring.*
+rclone.conf
+**/rclone/*.conf
+kubeconfig
+*.kubeconfig
+**/secrets/
+*secret*.yaml
+*secret*.yml
+!**/templates/*secret*.yaml
+*.tfstate
+*.tfstate.*

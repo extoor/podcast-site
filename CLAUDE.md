@@ -7,7 +7,9 @@
 
 - Сервер: Radxa на Intel N100 (x86_64), Linux.
 - Разработка идёт в dev-контейнере (`.devcontainer/`, образ `mcr.microsoft.com/devcontainers/rust`),
-  подключение из VS Code через Remote-SSH.
+  подключение из VS Code через Remote-SSH. Установка инструментов — `.devcontainer/post-create.sh`
+  (Caddy из официального репозитория, Chromium, musl-цели Rust, cargo-audit/deny, GPG);
+  свой Docker внутри — фича docker-in-docker (контейнер привилегированный).
 - Аудио: rclone-монтирование `crypt:music/Podcast` → `/media/podcasts`,
   проброшено в контейнер **только на чтение**. Писать туда нельзя и не нужно.
 - Порты в разработке: 7070 (Gopher), 8080 (HTTP). Порты <1024 в разработке не используем, root не нужен.
@@ -113,6 +115,21 @@
   (браузеры на Спектруме переводят текст в CP866, остальное показывают как `?`): `fit()` в
   `sitegen/src/gopher.rs` заменяет `—` → `-`, `…` → `...`, `◄` → `<` и т. п.
 
+## Секреты: репозиторий публичный
+
+- В git **никогда** не попадают пароли, ключи, токены, сертификаты с закрытым ключом,
+  конфиги rclone (в них ключи шифрования `crypt:`), kubeconfig, `.env` и т. п. — ни в коде,
+  ни в примерах, ни в тестах, ни в истории. Секреты живут вне репозитория: GitHub Actions
+  secrets, Kubernetes Secret (создаётся отдельно, в чарте — только ссылка на него).
+- `.gitignore` закрывает типичные файлы с секретами; публичный ключ подписи
+  `.devcontainer/signing-key.asc` — исключение, он нужен.
+- В CI работает gitleaks по всей истории; в настройках GitHub включить secret scanning и
+  push protection (бесплатно для публичных репозиториев).
+- Если секрет всё же попал в коммит — **сначала отозвать/сменить его**, потом чистить историю:
+  удаление из истории не помогает, если коммит уже был запушен.
+- Перед коммитом смотреть `git diff --cached` на предмет секретов; в примерах — заглушки
+  (`<token>`, `example.org`).
+
 ## Соглашения
 
 - Rust stable, `cargo fmt` и `cargo clippy -- -D warnings` без предупреждений.
@@ -138,12 +155,31 @@
 4. [x] Gopher-сервер `gopherd` (tokio): селекторы `/`, `/podcast/<slug>/`, `/dir/<slug>/`,
        `/playlists/…`, `/media/…`; запуск: `cargo run -p gopherd -- --listen 127.0.0.1:7070`.
        Тесты атак — `gopherd/tests/server.rs`.
+   CI — GitHub Actions (`.github/workflows/`): `ci.yml` — fmt, clippy, тесты, cargo audit/deny,
+   JS-модули, Caddyfile, gitleaks; `images.yml` — образы amd64+arm64 в GHCR
+   (`ghcr.io/<owner>/<repo>/{generator,gopherd,web}`) из main и тегов `v*`, PR — только сборка,
+   еженедельная пересборка (свежий Caddy). Dependabot — actions, cargo, базовые образы.
+   Docker в dev-контейнере — для локальной проверки сборки.
 5. [~] HTTPS через Caddy с Range-запросами: `caddy/Caddyfile` готов и проверен в dev (Range,
        attachment для плейлистов, CSP); осталось — домен и сертификат (`SITE_ADDRESS`).
-       В контейнере Debian-пакет Caddy 2.6 — только для разработки, в продакшене свежий образ.
-6. [ ] Docker-образы (multi-stage, non-root).
-7. [ ] Kubernetes: веб через Ingress; Gopher — голый TCP на 70,
-       нужен Service типа LoadBalancer/NodePort или TCP-проброс в Ingress-контроллере.
+       Caddy всегда последней версии: в dev-контейнере — из официального apt-репозитория Caddy,
+       в образе `web` — `caddy:2-alpine` со сборкой `--pull` и регулярной пересборкой.
+6. [~] Docker-образы (GitHub Actions + GHCR, см. выше): `docker/Dockerfile`, цели `generator` (`sitegen --scan`), `gopherd`, `web`
+       (Caddy + `caddy/Caddyfile`, без file capability — иначе не стартует при drop ALL);
+       multi-arch amd64 + arm64: Rust-этап на `$BUILDPLATFORM` кросс-компилирует статический
+       musl через `rust-lld` (без Zig и C-тулчейна), рантайм `distroless/static:nonroot`.
+       Все образы rootless: UID/GID 65532 числом (иначе runAsNonRoot в Kubernetes не проверит),
+       без capabilities, корневая ФС только на чтение. В dev-контейнере свой Docker
+       (фича docker-in-docker) для `docker buildx`. Проверка живости — `gopherd --check <адрес>`.
+7. [ ] Kubernetes (radxa — только разработка, работает всё в кластере). Решено:
+       - деплой — Helm-чарт в репозитории, ArgoCD; образы — GHCR (собирает GitHub Actions);
+       - аудио — rclone CSI-драйвер (PV `crypt:music/Podcast`, ReadOnlyMany, конфиг в Secret);
+       - собранный сайт — local volume (RWO = одна нода: generator, gopherd и web на ней);
+       - веб — Service + Ingress (TLS там), Caddy внутри на 8080;
+       - Gopher — Multus macvlan со своим IP в DMZ (аннотация `k8s.v1.cni.cncf.io/networks`,
+         например `<gopher-ip>`), gopherd слушает 70 без root через sysctl
+         `net.ipv4.ip_unprivileged_port_start=0`; в меню — DNS-имя этого IP и порт 70;
+       - Pod Security «restricted»: runAsNonRoot, readOnlyRootFilesystem, drop ALL, seccomp.
 
 ## Открытые вопросы
 

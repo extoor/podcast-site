@@ -76,6 +76,45 @@ client (or `curl gopher://<host>:7070/1/`). Each tool prints its options with `-
 For production, Caddy takes `SITE_ADDRESS` (the domain; it gets a certificate itself),
 `BUILD_DIR` and `MEDIA_DIR` from the environment.
 
+## Container images
+
+Production runs in Kubernetes (the dev server only develops). `docker/Dockerfile` builds
+three images, each for `linux/amd64` and `linux/arm64` under one tag:
+
+| Target | What it is | Runs as |
+|--------|------------|---------|
+| `generator` | `sitegen --scan`: scan the library and build the site in one command | CronJob |
+| `gopherd` | the Gopher server | Deployment |
+| `web` | Caddy with `caddy/Caddyfile`, plain HTTP on 8080 (TLS at the Ingress) | Deployment |
+
+```bash
+docker buildx build --pull --platform linux/amd64,linux/arm64 -f docker/Dockerfile \
+  --target gopherd -t <registry>/podcast-site/gopherd:<tag> --push .
+```
+
+All images are rootless: they run as UID/GID 65532 (numeric, so Kubernetes' `runAsNonRoot`
+can verify it), need no capabilities and no writable root filesystem. The `web` image takes
+the newest Caddy 2.x at build time (`caddy:2-alpine` with `--pull`); rebuild it regularly.
+
+The Rust binaries are cross-compiled on the build machine's own architecture into static
+musl executables (linked by `rust-lld` from the Rust toolchain; every dependency is pure
+Rust), so there is no emulation and no C toolchain. Our images are
+`distroless/static:nonroot`: no shell, a non-root user, a few megabytes. The generator is
+configured by `PODCAST_BASE_URL`, `GOPHER_HOST`, `GOPHER_PORT`; `gopherd --check <addr>`
+is its health check.
+
+## Continuous integration
+
+GitHub Actions (`.github/workflows/`):
+
+- `ci.yml` on every push and pull request: `cargo fmt`, `clippy -D warnings`, tests,
+  `cargo audit`, `cargo deny`, the inlined JavaScript modules, the `Caddyfile` with the
+  newest Caddy, and gitleaks over the whole history (no secrets in this public repository).
+- `images.yml`: the three images for amd64 + arm64, pushed to
+  `ghcr.io/<owner>/<repo>/{generator,gopherd,web}` from `main` and `v*` tags (pull requests
+  only build them); a weekly run rebuilds them with the newest Caddy and base images.
+- Dependabot keeps the actions, crates and base images up to date.
+
 ## Security
 
 - `gopherd` validates every selector before touching the disk (no `..`, hidden

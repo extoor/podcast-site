@@ -76,6 +76,44 @@ caddy run --config caddy/Caddyfile --adapter caddyfile
 В продакшене Caddy берёт из окружения `SITE_ADDRESS` (домен; сертификат он получит сам),
 `BUILD_DIR` и `MEDIA_DIR`.
 
+## Образы контейнеров
+
+В продакшене всё работает в Kubernetes (dev-сервер — только для разработки).
+`docker/Dockerfile` собирает три образа, каждый под `linux/amd64` и `linux/arm64` с одним тегом:
+
+| Цель | Что это | Как запускается |
+|------|---------|-----------------|
+| `generator` | `sitegen --scan`: просканировать медиатеку и собрать сайт одной командой | CronJob |
+| `gopherd` | Gopher-сервер | Deployment |
+| `web` | Caddy с `caddy/Caddyfile`, обычный HTTP на 8080 (TLS — на Ingress) | Deployment |
+
+```bash
+docker buildx build --pull --platform linux/amd64,linux/arm64 -f docker/Dockerfile \
+  --target gopherd -t <registry>/podcast-site/gopherd:<tag> --push .
+```
+
+Все образы rootless: работают от UID/GID 65532 (числом — чтобы `runAsNonRoot` в Kubernetes
+мог это проверить), без capabilities и без записи в корневую ФС. Образ `web` берёт последний
+Caddy 2.x на момент сборки (`caddy:2-alpine` с `--pull`) — его нужно регулярно пересобирать.
+
+Бинарники Rust кросс-компилируются на родной архитектуре машины сборки в статические
+musl-файлы (линкует `rust-lld` из тулчейна Rust; все зависимости на чистом Rust) — без
+эмуляции и без C-тулчейна. Наши образы — `distroless/static:nonroot`: без shell, не от root,
+несколько мегабайт. Генератор настраивается переменными `PODCAST_BASE_URL`, `GOPHER_HOST`,
+`GOPHER_PORT`; `gopherd --check <адрес>` — проверка живости.
+
+## Непрерывная интеграция
+
+GitHub Actions (`.github/workflows/`):
+
+- `ci.yml` на каждый push и pull request: `cargo fmt`, `clippy -D warnings`, тесты,
+  `cargo audit`, `cargo deny`, встраиваемые JS-модули, `Caddyfile` с последним Caddy и
+  gitleaks по всей истории (в публичном репозитории не должно быть секретов).
+- `images.yml`: три образа под amd64 + arm64 в `ghcr.io/<owner>/<repo>/{generator,gopherd,web}`
+  из `main` и тегов `v*` (для pull request — только сборка); раз в неделю образы
+  пересобираются с последним Caddy и свежими базовыми образами.
+- Dependabot обновляет actions, crates и базовые образы.
+
 ## Безопасность
 
 - `gopherd` проверяет каждый селектор до обращения к диску (никаких `..`, скрытых

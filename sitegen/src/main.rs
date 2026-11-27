@@ -1,9 +1,11 @@
 //! sitegen CLI: reads `build/catalog.json` and writes `build/gopher/**/gophermap`
-//! and `build/www/**/index.html`.
+//! and `build/www/**/index.html`. With `--scan` it first runs the podscan scan itself,
+//! so one command (one container, no shell) builds everything.
 
 #![forbid(unsafe_code)]
 
 use anyhow::{Context, Result, bail};
+use podscan::build::{self, Options};
 use podscan::catalog::{Catalog, FORMAT_VERSION};
 use sitegen::gopher::{self, Server};
 use sitegen::html;
@@ -15,6 +17,12 @@ const USAGE: &str = "\
 
 Параметры:
   --build <ПАПКА>       каталог сборки с catalog.json (по умолчанию build)
+  --scan                сначала просканировать медиатеку (как podscan): плейлисты
+                        и catalog.json пишутся в каталог сборки
+  --media <ПАПКА>       с --scan: корень медиа (по умолчанию /media/podcasts)
+  --rules <ФАЙЛ>        с --scan: правила подкастов (по умолчанию podcasts.toml)
+  --base-url <URL>      с --scan: базовый URL сайта для плейлистов
+                        (по умолчанию $PODCAST_BASE_URL или http://localhost:8080)
   --gopher-host <ИМЯ>   имя Gopher-сервера в меню
                         (по умолчанию $GOPHER_HOST или localhost)
   --gopher-port <ПОРТ>  порт Gopher-сервера в меню
@@ -24,12 +32,18 @@ const USAGE: &str = "\
 struct Args {
     build: PathBuf,
     server: Server,
+    /// `--scan`: scan the library first (else read the existing `catalog.json`).
+    scan: Option<Options>,
 }
 
 fn parse_args() -> Result<Option<Args>> {
     let mut build = PathBuf::from("build");
     let mut host = std::env::var("GOPHER_HOST").unwrap_or_else(|_| "localhost".into());
     let mut port = std::env::var("GOPHER_PORT").unwrap_or_else(|_| "7070".into());
+    let mut scan = false;
+    let mut media = PathBuf::from("/media/podcasts");
+    let mut rules = PathBuf::from("podcasts.toml");
+    let mut base_url = std::env::var("PODCAST_BASE_URL").ok();
 
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -38,6 +52,10 @@ fn parse_args() -> Result<Option<Args>> {
             "--build" => build = value("--build")?.into(),
             "--gopher-host" => host = value("--gopher-host")?,
             "--gopher-port" => port = value("--gopher-port")?,
+            "--scan" => scan = true,
+            "--media" => media = value("--media")?.into(),
+            "--rules" => rules = value("--rules")?.into(),
+            "--base-url" => base_url = Some(value("--base-url")?),
             "-h" | "--help" => {
                 println!("{USAGE}");
                 return Ok(None);
@@ -54,9 +72,24 @@ fn parse_args() -> Result<Option<Args>> {
         .ok()
         .filter(|&p| p > 0)
         .with_context(|| format!("некорректный --gopher-port: {port:?}"))?;
+    let scan = if scan {
+        let base_url = base_url.unwrap_or_else(|| {
+            eprintln!("предупреждение: --base-url не задан, используется http://localhost:8080");
+            "http://localhost:8080".to_owned()
+        });
+        Some(Options {
+            media,
+            out: build.clone(),
+            rules,
+            base_url: build::base_url(&base_url)?,
+        })
+    } else {
+        None
+    };
     Ok(Some(Args {
         build,
         server: Server { host, port },
+        scan,
     }))
 }
 
@@ -64,18 +97,14 @@ fn main() -> Result<()> {
     let Some(args) = parse_args()? else {
         return Ok(());
     };
-    let path = args.build.join("catalog.json");
-    let text = fs::read_to_string(&path)
-        .with_context(|| format!("не удалось прочитать {}", path.display()))?;
-    let catalog: Catalog =
-        serde_json::from_str(&text).with_context(|| format!("ошибка в {}", path.display()))?;
-    if catalog.format_version != FORMAT_VERSION {
-        bail!(
-            "{}: версия формата {}, ожидается {FORMAT_VERSION} — перезапустите podscan",
-            path.display(),
-            catalog.format_version
-        );
-    }
+    let catalog = match &args.scan {
+        Some(o) => {
+            let catalog = build::run(o)?;
+            println!("Скан: {}", build::summary(&catalog));
+            catalog
+        }
+        None => read_catalog(&args.build.join("catalog.json"))?,
+    };
 
     let mut menus = gopher::menus(&catalog, &args.server)?;
     menus.push(("robots.txt".to_owned(), sitegen::ROBOTS_TXT.to_owned()));
@@ -101,6 +130,21 @@ fn main() -> Result<()> {
         args.build.join("www").display()
     );
     Ok(())
+}
+
+fn read_catalog(path: &Path) -> Result<Catalog> {
+    let text = fs::read_to_string(path)
+        .with_context(|| format!("не удалось прочитать {}", path.display()))?;
+    let catalog: Catalog =
+        serde_json::from_str(&text).with_context(|| format!("ошибка в {}", path.display()))?;
+    if catalog.format_version != FORMAT_VERSION {
+        bail!(
+            "{}: версия формата {}, ожидается {FORMAT_VERSION} — перезапустите podscan",
+            path.display(),
+            catalog.format_version
+        );
+    }
+    Ok(catalog)
 }
 
 /// Writes `files` into a fresh directory next to `dir` and swaps it in, so a running

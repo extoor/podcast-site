@@ -2,8 +2,9 @@
 #
 # Dev (from the repository root):
 #   caddy run --config caddy/Caddyfile --adapter caddyfile
-# Production: set SITE_ADDRESS to the domain (Caddy then gets a certificate itself),
-# BUILD_DIR and MEDIA_DIR to the mounted directories.
+# Kubernetes: the `web` image (docker/Dockerfile) sets SITE_ADDRESS=:8080 (plain HTTP,
+# TLS is done by the Ingress), BUILD_DIR=/site and MEDIA_DIR=/media. Without an Ingress,
+# SITE_ADDRESS set to a domain makes Caddy get a certificate itself.
 #
 # Range requests (seeking in players) are supported by file_server out of the box.
 {
