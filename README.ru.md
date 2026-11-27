@@ -112,7 +112,9 @@ musl-файлы (линкует `rust-lld` из тулчейна Rust; все з
 - `generator` — CronJob (`generator.schedule`) и Job после каждой установки/обновления;
   собранный сайт лежит на PVC (`site.storageClass`, по умолчанию `openebs-hostpath`, поэтому
   три пода на одной ноде);
-- аудио — PV rclone CSI-драйвера только на чтение (`crypt:music/Podcast`); его конфигурация —
+- аудио — PV rclone CSI-драйвера только на чтение
+  ([veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone),
+  `crypt:music/Podcast`); его конфигурация (ключ `configData`, весь `rclone.conf`) —
   Secret, создаваемый вне чарта (`media.csi.nodePublishSecretRef`), либо свой claim через
   `media.type: existingClaim`;
 - `gopherd` получает свой адрес через Multus (`gopher.podAnnotations`) и слушает порт 70

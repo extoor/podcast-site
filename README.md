@@ -113,9 +113,11 @@ The Helm chart `deploy/helm/podcast-site` deploys everything:
 - `generator` is a CronJob (`generator.schedule`) plus a Job after every install/upgrade;
   the built site lives on a PVC (`site.storageClass`, `openebs-hostpath` by default, so the
   three pods share one node);
-- the audio is a read-only PV of the rclone CSI driver (`crypt:music/Podcast`); its
-  configuration is a Secret made outside the chart (`media.csi.nodePublishSecretRef`),
-  or use your own claim with `media.type: existingClaim`;
+- the audio is a read-only PV of the rclone CSI driver
+  ([veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone),
+  `crypt:music/Podcast`); its configuration (key `configData`, the whole `rclone.conf`) is
+  a Secret made outside the chart (`media.csi.nodePublishSecretRef`), or use your own
+  claim with `media.type: existingClaim`;
 - `gopherd` gets its own address through Multus (`gopher.podAnnotations`) and listens on
   port 70 without root (the pod sysctl `net.ipv4.ip_unprivileged_port_start=0`); menus
   point to `gopher.host` (default `gopher.<domain>`);
