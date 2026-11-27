@@ -188,7 +188,8 @@
        - аудио — rclone CSI-драйвер (PV `crypt:music/Podcast`, ReadOnlyMany, конфиг в Secret);
        - собранный сайт — PVC RWO, `site.storageClass` (по умолчанию `openebs-hostpath`) —
          одна нода: generator, gopherd и web на ней;
-       - веб — Service + Traefik IngressRoute (`web` и `websecure`, без middleware в чарте)
+       - веб — Service + Traefik IngressRoute (`web` — порт 80, только
+         middleware redirect-scheme из ns traefik; `websecure` — без middleware)
          + cert-manager Certificate (ClusterIssuer
          zerossl-production), Caddy внутри на 8080;
        - Gopher — Multus macvlan со своим IP в DMZ (аннотация `k8s.v1.cni.cncf.io/networks`,

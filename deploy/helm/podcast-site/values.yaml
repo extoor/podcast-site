@@ -31,9 +31,12 @@ certificate:
 
 ingressRoute:
   enabled: true
-  # Traefik entry points of the plain and the TLS route (no middlewares in the chart)
+  # Traefik entry points; the plain one (port 80) only redirects to https
   web:
     entryPoints: [web]
+    middlewares:
+      - name: redirect-scheme
+        namespace: traefik
   websecure:
     entryPoints: [websecure]
 
