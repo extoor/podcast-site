@@ -7,23 +7,21 @@ centered over the page and is drawn entirely with characters: `╔═╗` frames
 One file, no dependencies; it adds its own styles.
 
 ```
-╔════════════════════ Browser Player v0.1 ═════════════════════╗
-║ File:    mordax-bastards-zebra-2015-04-04-podkasty-04.04.15… ║
-╟──────────────────────────────────────────────────────────────╢
-║ Title:   ZEBRA                                               ║
-║ Artist:  MORDAX Bastards                                     ║
-║ Podcast: Zebra                                               ║
-║ Date:    2015-04-04    Track: 1/25      Size: 86 MB          ║
-╟──────────────────────────────────────────────────────────────╢
-║ MPEG-1 Layer III  192 kbps CBR  44.1 kHz  Stereo             ║
-║ Decoder: Chrome    Vol: ██████████░░░░░░ -4dB                ║
-║                                                              ║
-║ ► 54:03 ████████████████████████████████████████░░░░░ 59:59  ║
-║                                                              ║
-║ Buf ████████████ 100% | 01:24                                ║
-╟──────────────────────────────────────────────────────────────╢
-║ Spc:next | P:prev | ←→↑↓:seek | S:pause | +-:vol | Esc:exit  ║
-╚══════════════════════════════════════════════════════════════╝
+╔════════════════════════ Browser Player v0.1 ═════════════════════════╗
+║ File:    mordax-bastards-zebra-2015-04-04-podkasty-04.04.15-kissfm.… ║
+╟──────────────────────────────────────────────────────────────────────╢
+║ Title:   ZEBRA                                                       ║
+║ Artist:  MORDAX Bastards                                             ║
+║ Podcast: Zebra                                                       ║
+║ Date:    04.04.2015    Track: 1/25      Size: 86 MB                  ║
+╟──────────────────────────────────────────────────────────────────────╢
+║ MPEG-1 Layer III  192 kbps CBR  44.1 kHz  Stereo                     ║
+║ Decoder: Chrome   Buf: █████████████ 02:19  Vol: █████████████   0dB ║
+║                                                                      ║
+║ ║ 00:02 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 59:59 ║
+╟──────────────────────────────────────────────────────────────────────╢
+║ Spc:next | P:prev | ←→↑↓:seek | S:pause | +-:vol | A:spec | Esc:exit ║
+╚══════════════════════════════════════════════════════════════════════╝
 ```
 
 ## Usage
@@ -75,15 +73,19 @@ beforehand (in podcast-site this is done by `podscan`, module `mpeg.rs`).
 | `title`        | `"Browser Player v0.1"` | title in the top frame |
 | `item`         | `"li"`                  | closest ancestor of the link that gets `playingClass` (the link itself if there is none) |
 | `playingClass` | `"tp-playing"`          | class of the current track, to highlight it in the list |
-| `width`        | `62`                    | inner width of the window, in characters |
+| `width`        | `70`                    | inner width of the window, in characters |
 | `bufferTarget` | `60`                    | seconds buffered ahead of the playhead shown as a full `Buf` bar |
+| `spectrum`     | `true`                  | spectrum analyzer under `Buf`: LED-style bars of `▂▂` segments, 20 bands from 50 Hz to 16 kHz (Web Audio) |
+| `spectrumRows` | `16`                    | segments per bar (a segment takes about a third of a line) |
+| `spectrumCookie` | `"tp_spectrum"`      | cookie that keeps the `A` key choice for a year (`1` shown, `0` hidden) |
 
 `attach` returns `{ open(index), close(), audio }`, or `null` if there are no links.
 
 ## Controls
 
 - Keys: Space — next track, `P` — previous, `<` `>` or `←` `→` — seek 10 seconds, `↑` `↓` — seek a minute,
-  `S` — pause, `+` `-` — volume, `Esc` or Backspace — close. Keys are matched by `e.code`, so they
+  `S` — pause, `+` `-` — volume, `A` — show / hide the spectrum analyzer (the window
+  resizes to fit, the choice is kept in a cookie), `Esc` or Backspace — close. Keys are matched by `e.code`, so they
   work in any keyboard layout.
 - Mouse: click or drag on the progress and volume bars; a click outside the window closes it.
   The key help line is plain text and does not react to the mouse.
@@ -107,6 +109,19 @@ Colors and font are set with CSS variables on `:root` or `.tp-overlay`:
 | `--tp-font`       | `"DejaVu Sans Mono", Menlo, Consolas, "Liberation Mono", monospace` | font |
 | `--tp-font-size`  | `min(16px, calc((100vw - 2rem) / 44))` | font size: the window fits a phone screen |
 | `--tp-z`          | `1000`       | z-index |
+| `--tp-spec-low`, `--tp-spec-mid`, `--tp-spec-high` | `#1a1`, `#cc0`, `#d22` | analyzer segments: bottom, middle, top |
+
+How the analyzer works: 22 bands spaced evenly on a log scale from 50 Hz to 16 kHz; a band
+shows its average power (not its loudest bin), with a tilt of +4.5 dB per octave around 1 kHz,
+because music loses energy towards the highs and without the tilt the right half stays low.
+Bars rise at once and fall at a fixed rate in seconds (the same on 60 and 120 Hz screens);
+a peak segment hangs above each bar for 0.8 s, then sinks slowly. The scale (-80..-36 dB after
+the tilt) was measured on the podcasts of this site: a typical level fills about half a bar,
+loud moments reach the yellow and red segments.
+
+The analyzer runs only when every link is on the same site as the page: an element routed
+through Web Audio plays audio from another origin (without CORS) as silence. Otherwise the
+player works as before, without the bars.
 
 The font must be monospaced and include box-drawing (`╔═║`) and block (`█░`) characters,
 otherwise the frames fall apart.

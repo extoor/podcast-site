@@ -18,8 +18,11 @@
     title: "Browser Player v0.1",        // shown in the top frame
     item: "li",                          // closest element that gets `playingClass`
     playingClass: "tp-playing",
-    width: 62,                           // inner width of the window, in columns
+    width: 70,                           // inner width of the window, in columns
     bufferTarget: 60,                    // seconds buffered ahead that count as a full "Buf"
+    spectrum: true,                      // spectrum analyzer under "Buf" (same-origin audio only)
+    spectrumRows: 16,                    // segments per bar (a segment is about a third of a line)
+    spectrumCookie: "tp_spectrum",       // cookie that keeps the A key choice (shown / hidden)
   };
 
   // Look of the window. Every color and the font can be changed with CSS variables
@@ -30,7 +33,7 @@
 /* author display:flex would otherwise override the hidden attribute */
 .tp-overlay[hidden] { display: none; }
 .tp-win { margin: 0; padding: .5lh 1ch; background: var(--tp-bg, #aaa); color: var(--tp-label, #00a);
-  user-select: none; font: bold var(--tp-font-size, min(16px, calc((100vw - 2rem) / 44))) / normal
+  user-select: none; font: bold var(--tp-font-size, min(16px, calc((100vw - 2rem) / 46))) / normal
   var(--tp-font, "DejaVu Sans Mono", Menlo, Consolas, "Liberation Mono", monospace); }
 .tp-win:focus { outline: none; }
 .tp-win .tp-fr { color: var(--tp-frame, #fff); font-weight: normal; }
@@ -41,6 +44,14 @@
 /* the state glyph may come from a fallback font with a taller line (Menlo lacks
    some of these): keep it out of the line height, or the window jumps on pause */
 .tp-win .tp-st { line-height: 0; }
+/* spectrum analyzer: segments of LED bars. The whole analyzer is one inline block
+   with its own, tight line height: a segment is "▂" (a quarter of a cell), so the
+   segments come thick with thin gaps; the frame's "║" overlap and stay one line. */
+.tp-win .tp-specbox { display: inline-block; vertical-align: top; line-height: .42em;
+  padding: .3em 0 .35em; }
+.tp-win .tp-g { color: var(--tp-spec-low, #1a1); }
+.tp-win .tp-y { color: var(--tp-spec-mid, #cc0); }
+.tp-win .tp-r { color: var(--tp-spec-high, #d22); }
 `;
 
   // Browser name for the "Decoder:" line.
@@ -73,6 +84,18 @@
     try { return decodeURIComponent(new URL(href, global.location.href).pathname.split("/").pop()); }
     catch { return href; }
   };
+
+  function readCookie(name) {
+    try {
+      const m = global.document.cookie.match(new RegExp("(?:^|; )" + name.replace(/\W/g, "") + "=([^;]*)"));
+      return m ? m[1] : null;
+    } catch { return null; }
+  }
+  function writeCookie(name, value) {
+    try {
+      global.document.cookie = `${name.replace(/\W/g, "")}=${value}; path=/; max-age=31536000; SameSite=Lax`;
+    } catch { /* cookies blocked: the choice lasts until the page is left */ }
+  }
 
   function injectStyle(doc) {
     if (doc.getElementById("tp-style")) return;
@@ -113,6 +136,14 @@
     const row = (...segs) => {
       const pad = Math.max(0, W - 2 - width(segs));
       return `<span class="tp-fr">║</span> ${segs.map(html).join("")}${" ".repeat(pad)} <span class="tp-fr">║</span>`;
+    };
+    // Groups of segments across the inner width: the spare columns go evenly between them.
+    const spread = (...groups) => {
+      const free = Math.max(0, W - 2 - groups.reduce((n, g) => n + width(g), 0));
+      const gaps = groups.length - 1;
+      return groups.flatMap((g, i) => i < gaps
+        ? [...g, seg(" ".repeat(Math.floor(free / gaps) + (i < free % gaps ? 1 : 0)))]
+        : g);
     };
     const sep = () => `<span class="tp-fr">╟${"─".repeat(W)}╢</span>`;
     const L = (s) => seg(s, "tp-lb"), V = (s) => seg(s, "tp-va");
@@ -163,18 +194,129 @@
         sep(),
         // stream info from the page (e.g. parsed from the MPEG header); else an estimate
         row(V(fit(a.format || (kbps ? `${kbps} kbps` : ""), W - 2))),
-        row(L("Decoder: "), V(BROWSER.padEnd(10)), L("Vol: "),
-            seg(bar(audio.volume, 16), "tp-lb tp-slider", 'data-act="vol"'), V(" " + db)),
+        // decoder left, buffer (time buffered ahead, as on the progress line) in the
+        // middle, volume right: the free columns are shared out between them
+        row(...spread(
+          [L("Decoder: "), V(BROWSER)],
+          [L("Buf: "), seg(bar(buf, 13), "tp-lb"), V(" " + time(ahead))],
+          [L("Vol: "), seg(bar(audio.volume, 13), "tp-lb tp-slider", 'data-act="vol"'), V(" " + db.padStart(5))],
+        )),
         row(),
         row(seg(audio.paused ? "║" : "►", "tp-lb tp-st"), L(" " + ct + " "),
             seg(bar(audio.currentTime / dur, pw), "tp-lb tp-slider", 'data-act="seek"'), L(" " + dt)),
-        row(),
-        row(L("Buf "), seg(bar(buf, 12), "tp-lb"), V(` ${Math.round(buf * 100)}%`), seg(" | ", "tp-fr"), V(time(ahead))),   // same format as the progress line
+        ...(spec.on && spec.shown ? [row(), `<span class="tp-specbox">${Array.from({ length: spec.rows }, (_, r) =>
+          `<span class="tp-fr">║</span> <span class="tp-spec">${spec.line(r)}</span> <span class="tp-fr">║</span>`).join("\n")}</span>`] : []),
         sep(),
-                row(...keys(["Spc", "next"], ["P", "prev"], ["←→↑↓", "seek"], ["S", "pause"], ["+-", "vol"], ["Esc", "exit"])),
+        row(...keys(["Spc", "next"], ["P", "prev"], ["←→↑↓", "seek"], ["S", "pause"], ["+-", "vol"],
+                    ...(spec.on ? [["A", "spec"]] : []), ["Esc", "exit"])),
         `<span class="tp-fr">╚${"═".repeat(W)}╝</span>`,
       ].join("\n");
     }
+
+    // --- spectrum analyzer ----------------------------------------------------
+    // Web Audio: the element feeds an AnalyserNode. Routing an element through Web
+    // Audio is for good, and audio from another origin (without CORS) would then come
+    // out silent, so it is used only when every link is on this site.
+    const sameOrigin = links.every((a) => {
+      try { return new URL(a.href, global.location.href).origin === global.location.origin; }
+      catch { return false; }
+    });
+    const spec = {
+      on: o.spectrum && sameOrigin && !!(global.AudioContext || global.webkitAudioContext),
+      shown: readCookie(o.spectrumCookie) !== "0",   // the A key; shown unless turned off
+      rows: o.spectrumRows,
+      bands: Math.floor((W - 2) / 3),        // a bar is 2 columns + 1 gap
+      levels: null,                         // per band, 0..rows
+      peaks: null, held: null,              // peak level per band, when it was reached
+      ctx: null, an: null, data: null, raf: 0, last: 0,
+      // one text line of the bars, row r from the top: colored "▂▂" segments
+      line(r) {
+        const t = this.rows - r;            // the level this line lights at
+        const cls = t > this.rows * 0.8 ? "tp-r" : t > this.rows * 0.5 ? "tp-y" : "tp-g";
+        let lit = "";
+        for (let b = 0; b < this.bands; b++) {
+          const level = this.levels ? Math.round(this.levels[b]) : 0;
+          const peak = this.peaks ? Math.round(this.peaks[b]) : 0;
+          // a bar up to its level, and above it the hanging peak segment
+          lit += (level >= t || (peak === t && peak > level) ? "▂▂" : "  ") + " ";
+        }
+        // pad to the inner width, so the right frame stays in place
+        return `<span class="${cls}">${lit.padEnd(W - 2)}</span>`;
+      },
+    };
+    // A: show / hide the analyzer, remembered in a cookie for a year. The window is
+    // drawn anew, so it grows or shrinks to fit.
+    function specToggle() {
+      if (!spec.on) return;
+      spec.shown = !spec.shown;
+      writeCookie(o.spectrumCookie, spec.shown ? "1" : "0");
+      render();
+      if (spec.shown) specStart();
+    }
+    function specStart() {
+      if (!spec.on || !spec.shown) return;
+      if (!spec.an) {
+        try {
+          const AC = global.AudioContext || global.webkitAudioContext;
+          spec.ctx = new AC();
+          const src = spec.ctx.createMediaElementSource(audio);
+          spec.an = spec.ctx.createAnalyser();
+          spec.an.fftSize = 4096;
+          spec.an.smoothingTimeConstant = 0.5;
+          src.connect(spec.an);
+          spec.an.connect(spec.ctx.destination);
+          spec.data = new Float32Array(spec.an.frequencyBinCount);
+          spec.levels = new Array(spec.bands).fill(0);
+          spec.peaks = new Array(spec.bands).fill(0);
+          spec.held = new Array(spec.bands).fill(0);
+        } catch {
+          spec.on = false;                  // the player still plays, without bars
+          return;
+        }
+      }
+      if (spec.ctx.state === "suspended") spec.ctx.resume().catch(() => {});
+      if (!spec.raf) spec.raf = global.requestAnimationFrame(specTick);
+    }
+    // Analyzer tuning. Levels are average band power in dB with a tilt of +4.5 dB per
+    // octave around 1 kHz (music loses energy towards the highs; without the tilt the
+    // right half stays low), mapped from FLOOR..CEIL onto the segments. Measured on the
+    // podcasts: after the tilt the median is about -55 dB, 95% below -42, peaks -31.
+    const SPEC = {
+      FLOOR: -80, CEIL: -36,      // dB after the tilt: empty .. full bar
+      TILT: 4.5,                  // dB per octave
+      RELEASE: 1.6,               // bars fall this many full heights per second (rise at once)
+      HOLD: 0.8,                  // seconds a peak stays put
+      PEAK_FALL: 0.5,             // then it falls this many full heights per second
+    };
+    function specTick(now) {
+      spec.raf = 0;
+      if (overlay.hidden || !spec.an || !spec.shown) { spec.last = 0; return; }
+      // time-based ballistics: the same on 60 and 120 Hz screens
+      const dt = spec.last ? Math.min(0.1, (now - spec.last) / 1000) : 0;
+      spec.last = now;
+      spec.an.getFloatFrequencyData(spec.data);
+      // bands spaced evenly on a log scale, 50 Hz .. 16 kHz
+      const nyquist = spec.ctx.sampleRate / 2, n = spec.data.length, rows = spec.rows;
+      for (let b = 0; b < spec.bands; b++) {
+        const f0 = 50 * Math.pow(320, b / spec.bands), f1 = 50 * Math.pow(320, (b + 1) / spec.bands);
+        const i0 = Math.floor((f0 / nyquist) * n), i1 = Math.max(i0 + 1, Math.ceil((f1 / nyquist) * n));
+        let power = 0, count = 0;
+        for (let i = i0; i < i1 && i < n; i++) { power += Math.pow(10, spec.data[i] / 10); count++; }
+        let db = count && power > 0 ? 10 * Math.log10(power / count) : -Infinity;
+        db += SPEC.TILT * Math.log2(Math.sqrt(f0 * f1) / 1000);
+        const target = Math.min(1, Math.max(0, (db - SPEC.FLOOR) / (SPEC.CEIL - SPEC.FLOOR))) * rows;
+        spec.levels[b] = Math.max(target, spec.levels[b] - rows * SPEC.RELEASE * dt);
+        // peak hold: jumps up with the bar, stays HOLD seconds, then falls slowly
+        if (spec.levels[b] >= spec.peaks[b]) { spec.peaks[b] = spec.levels[b]; spec.held[b] = now; }
+        else if (now - spec.held[b] > SPEC.HOLD * 1000) {
+          spec.peaks[b] = Math.max(spec.levels[b], spec.peaks[b] - rows * SPEC.PEAK_FALL * dt);
+        }
+      }
+      const lines = win.querySelectorAll(".tp-spec");
+      lines.forEach((el, r) => { el.innerHTML = spec.line(r); });
+      spec.raf = global.requestAnimationFrame(specTick);
+    }
+
 
     function open(i) {
       if (i < 0 || i >= links.length) return;
@@ -184,6 +326,7 @@
       audio.src = links[cur].href;
       audio.play().catch(() => {});
       overlay.hidden = false;
+      specStart();                          // a click or a key: Web Audio may start now
       // Otherwise the clicked link keeps focus and, after the first key press, its
       // :focus-visible highlight looks like a second playing track.
       win.focus({ preventScroll: true });
@@ -244,7 +387,7 @@
       if (overlay.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
       // e.code, so the keys work in any keyboard layout
       const act = {
-        Space: () => open(cur + 1), KeyP: () => open(cur - 1), KeyS: toggle, Escape: close, Backspace: close,
+        Space: () => open(cur + 1), KeyP: () => open(cur - 1), KeyS: toggle, KeyA: specToggle, Escape: close, Backspace: close,
         Comma: () => seekBy(-10), Period: () => seekBy(10), ArrowLeft: () => seekBy(-10), ArrowRight: () => seekBy(10),
         ArrowUp: () => seekBy(60), ArrowDown: () => seekBy(-60),   // bigger steps, as in mpv
         Equal: () => volBy(1 / 16), NumpadAdd: () => volBy(1 / 16), Minus: () => volBy(-1 / 16), NumpadSubtract: () => volBy(-1 / 16),
