@@ -120,7 +120,7 @@ The Helm chart `deploy/helm/podcast-site` deploys everything:
   claim with `media.type: existingClaim`;
 - `gopherd` gets its own address through Multus (`gopher.podAnnotations`) and listens on
   port 70 without root (the pod sysctl `net.ipv4.ip_unprivileged_port_start=0`); menus
-  point to `gopher.host` (default `gopher.<domain>`);
+  point to `gopher.host` (default: `domain`, the same name as the web);
 - every pod passes Pod Security "restricted"; `networkPolicy.enabled` forbids egress and lets
   only Traefik reach the web pod.
 
@@ -163,7 +163,7 @@ GitHub Actions (`.github/workflows/`):
 
 Working: scanning, playlists, Gopher menus and server, HTML pages, the player, Caddy
 in development, multi-arch rootless images in GHCR, the Helm chart. Next: the first deploy
-to the cluster. Still open: the site's domain.
+to the cluster.
 
 ## License
 

@@ -35,7 +35,7 @@ app.kubernetes.io/component: {{ index . 1 }}
 {{- end -}}
 
 {{- define "ps.gopherHost" -}}
-{{- default (printf "gopher.%s" (include "ps.domain" .)) .Values.gopher.host -}}
+{{- default (include "ps.domain" .) .Values.gopher.host -}}
 {{- end -}}
 
 {{- define "ps.tlsSecret" -}}
