@@ -114,7 +114,7 @@ musl-файлы (линкует `rust-lld` из тулчейна Rust; все з
   три пода на одной ноде);
 - аудио — PV rclone CSI-драйвера только на чтение
   ([veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone),
-  `crypt:music/Podcast`); его конфигурация (ключ `configData`, весь `rclone.conf`) —
+  `crypt:music/Podcasts`); его конфигурация (ключ `configData`, весь `rclone.conf`) —
   Secret, создаваемый вне чарта (`media.csi.nodePublishSecretRef`), либо свой claim через
   `media.type: existingClaim`;
 - `gopherd` получает свой адрес через Multus (`gopher.podAnnotations`) и слушает порт 70

@@ -185,9 +185,10 @@
          kustomize поверх чарта (`deploy/kustomize/`, `--enable-helm`); образы — GHCR;
        - домен — только `domain` в values (+ `extraDomains`): из него Certificate, IngressRoute,
          base URL плейлистов и `gopher.<domain>` по умолчанию; нигде не дублируется;
-       - аудио — rclone CSI-драйвер veloxpack (`rclone.csi.veloxpack.io`, установлен, ещё не
-         проверен): PV `crypt:music/Podcast`, ReadOnlyMany, конфиг — Secret с ключом `configData`
-         (весь rclone.conf); монтирует с uid/gid = fsGroup и allow_other;
+       - аудио — rclone CSI-драйвер veloxpack (`rclone.csi.veloxpack.io`, проверен в кластере):
+         PV `crypt:music/Podcasts`, ReadOnlyMany, конфиг — Secret с ключом `configData` (именно
+         так, не `rclone.conf`): секции `[crypt]` и S3 под ней; fsGroup read-only тома kubelet
+         драйверу не передаёт — чарт сам добавляет `allow-other`, `uid`/`gid` из podSecurityContext;
        - собранный сайт — PVC RWO, `site.storageClass` (по умолчанию `openebs-hostpath`) —
          одна нода: generator, gopherd и web на ней;
        - веб — Service + Traefik IngressRoute (`web` — порт 80, только
