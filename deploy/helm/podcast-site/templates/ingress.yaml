@@ -1,0 +1,47 @@
+{{- $hosts := include "ps.hosts" . | fromJsonArray -}}
+{{- $match := list -}}
+{{- range $hosts }}{{ $match = append $match (printf "Host(`%s`)" .) }}{{ end -}}
+{{- if .Values.certificate.enabled }}
+# TLS certificate for every name of the site.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "ps.fullname" . }}
+  labels:
+    {{- include "ps.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "ps.tlsSecret" . }}
+  issuerRef:
+    name: {{ required "values.certificate.issuerRef.name is required" .Values.certificate.issuerRef.name }}
+    kind: {{ .Values.certificate.issuerRef.kind }}
+  dnsNames:
+    {{- toYaml $hosts | nindent 4 }}
+{{- end }}
+{{- if .Values.ingressRoute.enabled }}
+{{- range $name, $ep := dict "web" .Values.ingressRoute.web "websecure" .Values.ingressRoute.websecure }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "ps.fullname" $ }}-{{ $name }}
+  labels:
+    {{- include "ps.labels" $ | nindent 4 }}
+spec:
+  entryPoints:
+    {{- toYaml $ep.entryPoints | nindent 4 }}
+  routes:
+    - match: {{ join " || " $match | quote }}
+      kind: Rule
+      services:
+        - name: {{ include "ps.fullname" $ }}-web
+          port: http
+      {{- with $ep.middlewares }}
+      middlewares:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if eq $name "websecure" }}
+  tls:
+    secretName: {{ include "ps.tlsSecret" $ }}
+  {{- end }}
+{{- end }}
+{{- end }}

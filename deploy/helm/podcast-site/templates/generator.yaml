@@ -1,0 +1,58 @@
+# The generator: scans the library and builds the site into the site volume.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "ps.fullname" . }}-generator
+  labels:
+    {{- include "ps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: generator
+spec:
+  schedule: {{ .Values.generator.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            {{- include "ps.selector" (list . "generator") | nindent 12 }}
+        spec:
+          {{- include "ps.generatorPod" . | nindent 10 }}
+{{- if .Values.generator.runOnInstall }}
+---
+# Build once right after install and upgrade, so the servers have a site at once.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "ps.fullname" . }}-generator-init
+  labels:
+    {{- include "ps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: generator
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 1800
+  template:
+    metadata:
+      labels:
+        {{- include "ps.selector" (list . "generator") | nindent 8 }}
+    spec:
+      {{- include "ps.generatorPod" . | nindent 6 }}
+{{- end }}
+{{- if .Values.generator.rules }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ps.fullname" . }}-rules
+  labels:
+    {{- include "ps.labels" . | nindent 4 }}
+data:
+  podcasts.toml: |
+    {{- .Values.generator.rules | nindent 4 }}
+{{- end }}

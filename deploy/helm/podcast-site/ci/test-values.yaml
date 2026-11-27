@@ -1,0 +1,13 @@
+# Everything switched on, for helm lint / kubeconform in CI. Addresses are documentation ones.
+domain: podcasts.example.org
+extraDomains: [podcasts.example.net]
+gopher:
+  podAnnotations:
+    k8s.v1.cni.cncf.io/networks: |
+      [{"name": "macvlan-dmz-static", "namespace": "default", "interface": "dmz", "ips": ["192.0.2.45/24"]}]
+generator:
+  rules: |
+    [[podcast]]
+    name = "Zebra"
+networkPolicy:
+  enabled: true

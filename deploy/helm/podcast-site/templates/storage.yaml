@@ -1,0 +1,64 @@
+# The built site: the generator writes, gopherd and Caddy read.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ps.fullname" . }}-site
+  labels:
+    {{- include "ps.labels" . | nindent 4 }}
+spec:
+  accessModes: [{{ .Values.site.accessMode }}]
+  {{- with .Values.site.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.site.size }}
+{{- if eq .Values.media.type "csi" }}
+---
+# The audio library through a CSI driver (csi-rclone by default), read-only. The rclone
+# configuration with the crypt keys is in a Secret made outside this chart.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ include "ps.fullname" . }}-media-{{ .Release.Namespace }}
+  labels:
+    {{- include "ps.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadOnlyMany]
+  capacity:
+    storage: {{ .Values.media.size }}
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: {{ .Release.Namespace }}
+    name: {{ include "ps.fullname" . }}-media
+  csi:
+    driver: {{ .Values.media.csi.driver }}
+    volumeHandle: {{ .Values.media.csi.volumeHandle }}
+    readOnly: true
+    {{- with .Values.media.csi.volumeAttributes }}
+    volumeAttributes:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.media.csi.nodePublishSecretRef }}
+    nodePublishSecretRef:
+      name: {{ required "values.media.csi.nodePublishSecretRef.name is required" .name }}
+      namespace: {{ default $.Release.Namespace .namespace }}
+    {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ps.fullname" . }}-media
+  labels:
+    {{- include "ps.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadOnlyMany]
+  storageClassName: ""
+  volumeName: {{ include "ps.fullname" . }}-media-{{ .Release.Namespace }}
+  resources:
+    requests:
+      storage: {{ .Values.media.size }}
+{{- else if ne .Values.media.type "existingClaim" }}
+{{- fail (printf "values.media.type: %q, expected csi or existingClaim" .Values.media.type) }}
+{{- end }}

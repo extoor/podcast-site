@@ -103,13 +103,41 @@ Rust), so there is no emulation and no C toolchain. Our images are
 configured by `PODCAST_BASE_URL`, `GOPHER_HOST`, `GOPHER_PORT`; `gopherd --check <addr>`
 is its health check.
 
+## Kubernetes
+
+The Helm chart `deploy/helm/podcast-site` deploys everything:
+
+- the domain is written once, `domain` (plus optional `extraDomains`); the cert-manager
+  `Certificate`, both Traefik `IngressRoute`s (`web` redirects to HTTPS, `websecure` with
+  your middlewares) and the playlists' base URL all come from it;
+- `generator` is a CronJob (`generator.schedule`) plus a Job after every install/upgrade;
+  the built site lives on a PVC (`site.storageClass`, `openebs-hostpath` by default, so the
+  three pods share one node);
+- the audio is a read-only PV of the rclone CSI driver (`crypt:music/Podcast`); its
+  configuration is a Secret made outside the chart (`media.csi.nodePublishSecretRef`),
+  or use your own claim with `media.type: existingClaim`;
+- `gopherd` gets its own address through Multus (`gopher.podAnnotations`) and listens on
+  port 70 without root (the pod sysctl `net.ipv4.ip_unprivileged_port_start=0`); menus
+  point to `gopher.host` (default `gopher.<domain>`);
+- every pod passes Pod Security "restricted"; `networkPolicy.enabled` forbids egress and lets
+  only Traefik reach the web pod.
+
+```sh
+helm install podcast-site deploy/helm/podcast-site -n podcasts --create-namespace \
+  --set domain=podcasts.example.org
+```
+
+Also there: `deploy/kustomize/` — the same chart through kustomize
+(`kustomize build --enable-helm`) for your own patches, and `deploy/argocd/application.yaml`.
+
 ## Continuous integration
 
 GitHub Actions (`.github/workflows/`):
 
 - `ci.yml` on every push and pull request: `cargo fmt`, `clippy -D warnings`, tests,
   `cargo audit`, `cargo deny`, the inlined JavaScript modules, the `Caddyfile` with the
-  newest Caddy, and gitleaks over the whole history (no secrets in this public repository).
+  newest Caddy, gitleaks over the whole history (no secrets in this public repository), and
+  the Helm chart (`helm lint`, kubeconform with the cert-manager and Traefik schemas).
 - `images.yml`: the three images for amd64 + arm64, pushed to
   `ghcr.io/<owner>/<repo>/{generator,gopherd,web}` from `main` and `v*` tags (pull requests
   only build them); a weekly run rebuilds them with the newest Caddy and base images.
@@ -132,8 +160,8 @@ GitHub Actions (`.github/workflows/`):
 ## Status
 
 Working: scanning, playlists, Gopher menus and server, HTML pages, the player, Caddy
-in development. Next: Docker images (multi-stage, non-root, read-only file system),
-then Kubernetes. Still open: the site's domain.
+in development, multi-arch rootless images in GHCR, the Helm chart. Next: the first deploy
+to the cluster. Still open: the site's domain.
 
 ## License
 

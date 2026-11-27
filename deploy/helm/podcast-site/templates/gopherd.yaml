@@ -1,0 +1,65 @@
+{{- if .Values.gopher.enabled }}
+# gopherd on its own DMZ address (Multus annotations) and port 70 without root: the pod
+# sysctl net.ipv4.ip_unprivileged_port_start=0 (namespaced, allowed as a safe sysctl).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ps.fullname" . }}-gopherd
+  labels:
+    {{- include "ps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gopherd
+spec:
+  replicas: 1
+  # one static address: the old pod must free it before the new one takes it
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ps.selector" (list . "gopherd") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ps.selector" (list . "gopherd") | nindent 8 }}
+      {{- with .Values.gopher.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- $pod := fromYaml (include "ps.podSpec" .) }}
+      {{- $_ := set $pod.securityContext "sysctls" (list (dict "name" "net.ipv4.ip_unprivileged_port_start" "value" "0")) }}
+      {{- toYaml $pod | nindent 6 }}
+      containers:
+        - name: gopherd
+          image: {{ include "ps.image" (list . "gopherd") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --listen
+            - {{ printf "0.0.0.0:%v" .Values.gopher.port | quote }}
+            - --build
+            - /site
+            - --media
+            - /media
+            - --max-conns
+            - {{ .Values.gopher.maxConns | quote }}
+          ports:
+            - name: gopher
+              containerPort: {{ .Values.gopher.port }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.gopher.resources | nindent 12 }}
+          # a real root menu must come back, not just an open port
+          readinessProbe:
+            exec:
+              command: [/usr/local/bin/gopherd, --check, {{ printf "127.0.0.1:%v" .Values.gopher.port | quote }}]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: [/usr/local/bin/gopherd, --check, {{ printf "127.0.0.1:%v" .Values.gopher.port | quote }}]
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            {{- include "ps.mounts" (list . "ro") | nindent 12 }}
+      volumes:
+        {{- include "ps.volumes" (list .) | nindent 8 }}
+{{- end }}
