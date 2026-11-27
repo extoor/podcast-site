@@ -239,6 +239,9 @@ GitHub Actions (`.github/workflows/`):
 - `images.yml`: the three images for amd64 + arm64, pushed to
   `ghcr.io/<owner>/<repo>/{generator,gopherd,web}` from `main` and `v*` tags (pull requests
   only build them); a weekly run rebuilds them with the newest Caddy and base images.
+  The commit goes in as `GIT_COMMIT` and is the site's version: `rev <short hash>` at the
+  bottom of every page (a link to the commit) and in the Gopher root menu. A local build
+  takes it from git (`-dirty` with uncommitted changes).
 - Dependabot keeps the actions, crates and base images up to date.
 
 ## Security

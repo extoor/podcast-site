@@ -220,6 +220,7 @@ pub fn menus(catalog: &Catalog, server: &Server) -> Result<Files> {
     m.blank();
     m.url("Веб-версия", &format!("{web}/"));
     m.info("Плейлисты M3U открываются в VLC, foobar2000, mpv.");
+    m.info(&format!("Версия: {}", crate::COMMIT));
     files.push(("gophermap".to_owned(), m.finish()));
 
     // A menu per podcast (podcast) and per folder.

@@ -23,6 +23,8 @@
 # --- build -----------------------------------------------------------------------------
 FROM --platform=$BUILDPLATFORM docker.io/library/rust:1.100.0-slim-bookworm AS build
 ARG TARGETARCH
+# the commit shown on the site as its version (sitegen/build.rs); there is no .git here
+ARG GIT_COMMIT=""
 WORKDIR /src
 RUN case "$TARGETARCH" in \
       amd64) t=x86_64-unknown-linux-musl ;; \

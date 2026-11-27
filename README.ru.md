@@ -237,7 +237,10 @@ GitHub Actions (`.github/workflows/`):
   (`helm lint`, kubeconform со схемами cert-manager и Traefik).
 - `images.yml`: три образа под amd64 + arm64 в `ghcr.io/<owner>/<repo>/{generator,gopherd,web}`
   из `main` и тегов `v*` (для pull request — только сборка); раз в неделю образы
-  пересобираются с последним Caddy и свежими базовыми образами.
+  пересобираются с последним Caddy и свежими базовыми образами. Коммит передаётся как
+  `GIT_COMMIT` и служит версией сайта: `rev <короткий хеш>` внизу каждой страницы (ссылка
+  на коммит) и в корневом меню Gopher. Локальная сборка берёт его из git (`-dirty` при
+  незакоммиченных правках).
 - Dependabot обновляет actions, crates и базовые образы.
 
 ## Безопасность

@@ -98,6 +98,10 @@
    Плейлисты `/playlists/*.m3u8` — с `Content-Disposition: attachment`: иначе Chrome и Safari
    открывают их встроенным HLS-плеером вместо скачивания (на страницах — атрибут `download`).
 
+Версия сайта — короткий коммит, из которого собран `sitegen` (`sitegen/build.rs`: `GIT_COMMIT`
+из CI через build-arg образа, локально — `git`, `-dirty` при правках): `rev <хеш>` внизу
+страниц (ссылка на коммит на GitHub) и строка «Версия:» в корневом меню Gopher.
+
 Сайт не для поисковиков: `sitegen` кладёт `robots.txt` (`Disallow: /`) в корень веба и Gopher,
 в каждой странице — `<meta name="robots" content="noindex, nofollow, noarchive, ...">`, Caddy
 шлёт тот же `X-Robots-Tag` на все ответы (MP3 и плейлисты тоже).

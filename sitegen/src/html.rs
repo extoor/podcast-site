@@ -68,6 +68,10 @@ a.m3u:hover { color: var(--bg); background: var(--dim); }
 .lang .sep { white-space: pre; }
 .lead { margin: 0 0 .5rem; }
 footer { margin-top: 3rem; color: var(--dim); font-size: 13px; }
+/* key hints left, the version right, on one row */
+.frow { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0 2ch; }
+.ver, .ver a { color: var(--dim); }
+.frow .ver { margin-left: auto; }
 .blink { animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 li.tp-playing .num { color: var(--hi); }
@@ -272,6 +276,14 @@ fn list_row(out: &mut String, href: &str, name: &str, n: usize, playlist: &str) 
     );
 }
 
+/// `rev <commit>` in the footer: a link to the commit when it is a clean one.
+fn version() -> String {
+    match crate::commit_url(crate::COMMIT) {
+        Some(url) => format!(r#"<a href="{}">{}</a>"#, esc(&url), esc(crate::COMMIT)),
+        None => esc(crate::COMMIT),
+    }
+}
+
 /// The parts every page shares, whatever its language.
 struct Layout {
     banner: String,
@@ -343,10 +355,12 @@ impl Layout {
         // The nav row under the banner: "◄ all podcasts" (sub-pages) left, languages right.
         let body = body.replacen("<!--nav-->", &switch, 1);
         let footer = format!(
-            "<footer><span class=\"keys\">{}</span><br>\n\
+            "<footer><div class=\"frow\"><span class=\"keys\">{}</span>\
+             <span class=\"ver\">rev {}</span></div>\n\
              ░▒▓ {}: {} ▓▒░<br>\n\
              &gt; {}<span class=\"blink\">█</span></footer>",
             esc(lang.keys),
+            version(),
             esc(lang.gopher),
             self.gopher,
             esc(lang.players)
