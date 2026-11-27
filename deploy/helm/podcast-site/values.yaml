@@ -31,19 +31,11 @@ certificate:
 
 ingressRoute:
   enabled: true
-  # entry point → middlewares ({name, namespace}); the http entry point redirects to https
+  # Traefik entry points of the plain and the TLS route (no middlewares in the chart)
   web:
     entryPoints: [web]
-    middlewares:
-      - name: redirect-scheme
-        namespace: traefik
   websecure:
     entryPoints: [websecure]
-    middlewares:
-      - name: geoblock
-        namespace: traefik
-      - name: crowdsec-bouncer
-        namespace: traefik
 
 # --- gopherd: own IP in the DMZ (Multus macvlan) ---------------------------------------
 gopher:

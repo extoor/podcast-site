@@ -108,8 +108,8 @@ is its health check.
 The Helm chart `deploy/helm/podcast-site` deploys everything:
 
 - the domain is written once, `domain` (plus optional `extraDomains`); the cert-manager
-  `Certificate`, both Traefik `IngressRoute`s (`web` redirects to HTTPS, `websecure` with
-  your middlewares) and the playlists' base URL all come from it;
+  `Certificate`, both Traefik `IngressRoute`s (entry points `web` and `websecure`, no
+  middlewares) and the playlists' base URL all come from it;
 - `generator` is a CronJob (`generator.schedule`) plus a Job after every install/upgrade;
   the built site lives on a PVC (`site.storageClass`, `openebs-hostpath` by default, so the
   three pods share one node);
