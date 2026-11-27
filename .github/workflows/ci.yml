@@ -20,7 +20,7 @@ jobs:
     name: fmt, clippy, tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Rust stable
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt,clippy
@@ -34,7 +34,7 @@ jobs:
     name: cargo audit, cargo deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit,cargo-deny
@@ -45,7 +45,7 @@ jobs:
     name: inlined scripts, Caddyfile
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: JavaScript modules parse and can be inlined
         run: |
           for f in web/*/*.js; do
@@ -62,7 +62,7 @@ jobs:
     name: no secrets in git
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # the whole history, not only the last commit
       # gitleaks itself over every commit (the action breaks on a push that starts at the
