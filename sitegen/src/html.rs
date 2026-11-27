@@ -102,6 +102,33 @@ fn inline_script(js: &str) -> Result<String> {
     Ok(format!("<script>{js}</script>"))
 }
 
+/// Cookie that keeps the language picked in the switcher.
+const LANG_COOKIE: &str = "lang";
+
+/// A script for the page head: a click on the language switcher stores the language
+/// in a cookie, and a page opened in another language goes straight to the same page
+/// in the stored one (before anything is drawn). Without JS the switcher is plain links.
+fn remember_lang(lang: &Lang, url: impl Fn(&Lang) -> String) -> String {
+    let urls: serde_json::Map<String, serde_json::Value> = LANGS
+        .iter()
+        .map(|l| (l.code.to_owned(), url(l).into()))
+        .collect();
+    // JSON inside a script: "<" would let a "</script" through
+    let urls = serde_json::Value::Object(urls)
+        .to_string()
+        .replace('<', "\\u003c");
+    format!(
+        "<script>(function(){{var u={urls},k=\"{LANG_COOKIE}\",\
+         m=document.cookie.match(/(?:^|; ){LANG_COOKIE}=([a-z]+)/);\
+         if(m&&m[1]!==\"{code}\"&&u.hasOwnProperty(m[1]))\
+         location.replace(u[m[1]]+location.search+location.hash);\
+         document.addEventListener(\"click\",function(e){{\
+         var a=e.target.closest&&e.target.closest(\".lang a[hreflang]\");\
+         if(a)document.cookie=k+\"=\"+a.hreflang+\"; path=/; max-age=31536000; SameSite=Lax\";}});}})();</script>",
+        code = lang.code
+    )
+}
+
 /// `MPEG-1 Layer III  192 kbps CBR  44.1 kHz  Stereo` — the player's stream line.
 fn audio_line(a: &AudioInfo) -> String {
     let layer = match a.layer {
@@ -352,6 +379,7 @@ impl Layout {
             }
         }
         switch.push_str("</nav>");
+        let remember = remember_lang(lang, url);
         // The nav row under the banner: "◄ all podcasts" (sub-pages) left, languages right.
         let body = body.replacen("<!--nav-->", &switch, 1);
         let footer = format!(
@@ -373,6 +401,7 @@ impl Layout {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
 <title>{title}</title>
+{remember}
 {alternates}<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;700&display=swap">
@@ -506,6 +535,23 @@ mod tests {
             }
         }
         assert_eq!(LANGS[0].prefix, "", "the main language is at the root");
+    }
+
+    #[test]
+    fn language_is_remembered() {
+        let page = Layout::new(&Server {
+            host: "example.org".into(),
+            port: 70,
+        })
+        .unwrap()
+        .page(&LANGS[2], "podcast/x/", "t", "<!--nav-->");
+        assert!(
+            page.contains(
+                r#"var u={"en":"/podcast/x/","ru":"/ru/podcast/x/","uk":"/ua/podcast/x/"}"#
+            )
+        );
+        assert!(page.contains(r#"m[1]!=="ru""#));
+        assert!(page.contains("document.cookie=k+"));
     }
 
     #[test]

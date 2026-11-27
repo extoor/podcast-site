@@ -48,7 +48,7 @@ The web and Gopher use the same paths:
 | `/` | index | root menu |
 | `/podcast/<slug>/` | episodes of a podcast | menu |
 | `/dir/<slug>/` | episodes of a folder | menu |
-| `/ru/…`, `/ua/…` | the same pages in Russian and Ukrainian (English is the main version; a switcher in the corner of every page) | — |
+| `/ru/…`, `/ua/…` | the same pages in Russian and Ukrainian (English is the main version; a switcher in the corner of every page; the choice is kept in a cookie) | — |
 | `/playlists/…` | M3U8, downloaded as a file | M3U8 (type 9) |
 | `/media/<path>` | MP3 (only `*.mp3`) | MP3 (type 9) |
 
