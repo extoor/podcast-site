@@ -11,6 +11,8 @@ metadata:
     {{- include "ps.labels" . | nindent 4 }}
 spec:
   secretName: {{ include "ps.tlsSecret" . }}
+  privateKey:
+    rotationPolicy: Always   # a new key on every renewal (the default since cert-manager 1.18)
   issuerRef:
     name: {{ required "values.certificate.issuerRef.name is required" .Values.certificate.issuerRef.name }}
     kind: {{ .Values.certificate.issuerRef.kind }}
