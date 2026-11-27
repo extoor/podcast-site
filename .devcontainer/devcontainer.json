@@ -7,7 +7,9 @@
     "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
     // Docker of its own inside the container (isolated from the host's Docker), for
     // building the multi-arch images: docker buildx. Needs a privileged container.
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    // GitHub CLI: push, CI runs and their logs (gh run watch / view)
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   
   "overrideFeatureInstallOrder": [
@@ -18,7 +20,9 @@
   "mounts": [
     "source=/media/podcasts,target=/media/podcasts,type=bind,readonly,bind-propagation=rslave",
     "source=podcast-site-claude,target=/home/vscode/.claude,type=volume",
-    "source=podcast-site-cargo,target=/usr/local/cargo/registry,type=volume"
+    "source=podcast-site-cargo,target=/usr/local/cargo/registry,type=volume",
+    // gh login (the token) survives a rebuild; it never goes into the repository
+    "source=podcast-site-gh,target=/home/vscode/.config/gh,type=volume"
   ],
 
   "containerEnv": {

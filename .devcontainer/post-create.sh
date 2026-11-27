@@ -3,7 +3,7 @@
 set -eu
 
 # Volumes are created by root: hand them to the user.
-sudo chown -R vscode:vscode /home/vscode/.claude /usr/local/cargo/registry
+sudo chown -R vscode:vscode /home/vscode/.claude /usr/local/cargo/registry /home/vscode/.config/gh
 
 # Caddy from its official Debian repository (always the current release; the Debian
 # package is far behind), as https://caddyserver.com/docs/install#debian-ubuntu-raspbian
