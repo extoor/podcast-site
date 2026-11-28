@@ -140,7 +140,11 @@ curl -sI https://<domain>/
 curl -sI -r 0-99 https://<domain>/media/<file>.mp3
 curl -sI https://<domain>/playlists/all.m3u8
 kubectl -n podcasts logs deploy/podcast-site-web | tail -5
+kubectl -n podcasts exec deploy/podcast-site-web -- wget -qO- http://127.0.0.1:8081/health
 ```
+
+The last one is the readiness check: `ok` once the site is built, an error (503) before. Port
+8081 is internal, it isn't in the Service.
 
 - The certificate isn't issued: almost always DNS, or port 80 doesn't reach Traefik (HTTP-01).
 - A Range request must get `206 Partial Content` (otherwise seeking in players breaks); the
@@ -151,11 +155,11 @@ kubectl -n podcasts logs deploy/podcast-site-web | tail -5
 
 ## Gopher
 
-**1. The server is alive** (inside the pod and on its own address):
+**1. The server is alive** (the same check as the probes; it works only from inside the pod,
+`/health` is a missing path from anywhere else):
 
 ```sh
 kubectl -n podcasts exec deploy/podcast-site-gopherd -- /usr/local/bin/gopherd --check 127.0.0.1:70
-kubectl -n podcasts exec deploy/podcast-site-gopherd -- /usr/local/bin/gopherd --check <pod-address>:70
 kubectl -n podcasts logs -f deploy/podcast-site-gopherd
 ```
 

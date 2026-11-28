@@ -145,7 +145,12 @@ GitHub Actions (`.github/workflows/`):
   выключенным админ-API. Адрес посетителя (`X-Real-IP`, `X-Forwarded-For`) принимается только
   от доверенных прокси (`TRUSTED_PROXIES`, в чарте `web.trustedProxies`, по умолчанию
   `private_ranges`) и стоит первым в строке лога доступа. Лог — в формате Combined (как у Apache
-  и nginx); пробы Kubernetes (`kube-probe/…`) в лог не пишутся.
+  и nginx).
+- У проверок свои адреса, доступные только из Kubernetes: Caddy отвечает на `GET /health`
+  на порту 8081, которого нет ни в Service, ни в Ingress (200, когда сайт собран, до того 503);
+  gopherd отвечает на селектор `/health` (корневым меню) только с loopback пода, откуда
+  приходят его exec-пробы, для остальных это несуществующий путь. Проверки не логируются;
+  `web.logProbes` и `gopher.logProbes` в чарте это включают.
 - Всё, что берётся из тегов и имён файлов, в HTML экранируется, а в меню Gopher
   очищается от табуляций и переводов строк.
 - Без `unsafe`; `cargo audit` и `cargo deny` — перед каждым коммитом.

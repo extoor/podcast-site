@@ -17,12 +17,16 @@ const USAGE: &str = "\
                          (по умолчанию build)
   --media <ПАПКА>        корень медиа (по умолчанию /media/podcasts)
   --max-conns <N>        одновременных соединений (по умолчанию 256)
+  --log-probes           писать в лог и проверки (`--check`, пробы Kubernetes):
+                         без него в лог попадают только их ошибки
   --check <АДРЕС:ПОРТ>   проверить работающий сервер и выйти: код 0, если он отдал
-                         корневое меню (для проб Kubernetes и HEALTHCHECK)
+                         корневое меню (для проб Kubernetes и HEALTHCHECK; селектор
+                         /health — сервер отдаёт корневое меню и не пишет его в лог)
   -h, --help             эта справка";
 
-/// Health check: asks `addr` for the root menu. The server is healthy only if a real
-/// menu comes back (ends with ".\r\n", not an error line), within the time limit.
+/// Health check: asks `addr` for the health selector, which the server answers with the
+/// root menu (and doesn't log). The server is healthy only if a real menu comes back
+/// (ends with ".\r\n", not an error line), within the time limit.
 fn check(addr: &str) -> Result<()> {
     use std::io::{Read, Write};
     use std::net::{TcpStream, ToSocketAddrs};
@@ -36,7 +40,7 @@ fn check(addr: &str) -> Result<()> {
         .with_context(|| format!("нет соединения с {addr}"))?;
     s.set_read_timeout(Some(limit))?;
     s.set_write_timeout(Some(limit))?;
-    s.write_all(b"\r\n")?;
+    s.write_all(format!("{}\r\n", server::HEALTH).as_bytes())?;
     let mut menu = Vec::new();
     s.take(1 << 20).read_to_end(&mut menu)?;
     if menu.starts_with(b"3") || !menu.ends_with(b".\r\n") {
@@ -50,6 +54,7 @@ fn parse_args() -> Result<Option<(String, Config)>> {
     let mut build = std::path::PathBuf::from("build");
     let mut media = std::path::PathBuf::from("/media/podcasts");
     let mut max_conns = 256usize;
+    let mut log_probes = false;
 
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -72,6 +77,7 @@ fn parse_args() -> Result<Option<(String, Config)>> {
                     .filter(|&n| n > 0)
                     .with_context(|| format!("некорректный --max-conns: {v:?}"))?;
             }
+            "--log-probes" => log_probes = true,
             "-h" | "--help" => {
                 println!("{USAGE}");
                 return Ok(None);
@@ -86,6 +92,7 @@ fn parse_args() -> Result<Option<(String, Config)>> {
         max_conns,
         read_timeout: Duration::from_secs(10),
         io_timeout: Duration::from_secs(60),
+        log_probes,
     };
     Ok(Some((listen, cfg)))
 }

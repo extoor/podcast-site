@@ -47,6 +47,9 @@ spec:
             - /media
             - --max-conns
             - {{ .Values.gopher.maxConns | quote }}
+            {{- if .Values.gopher.logProbes }}
+            - --log-probes
+            {{- end }}
           ports:
             - name: gopher
               containerPort: {{ .Values.gopher.port }}

@@ -98,8 +98,14 @@
    (чарт: `web.trustedProxies`, по умолчанию `private_ranges`), в логе — `client_ip`.
    Лог доступа — Combined Log Format через плагин `caddyserver/transform-encoder` (закреплён на
    коммите в `docker/Dockerfile`, этап `caddy` — xcaddy; им же CI проверяет Caddyfile; в
-   dev-контейнере — `caddy add-package`, после apt-обновления Caddy повторить); пробы
-   Kubernetes (`User-Agent: kube-probe/*`) не логируются (`log_skip`). Свои сообщения Caddy
+   dev-контейнере — `caddy add-package`, после apt-обновления Caddy повторить); проверки
+   — только на своих адресах и только из Kubernetes (правило для всех сервисов: публичного
+   доступа к проверкам нет): Caddy — `GET /health` на отдельном порту `HEALTH_ADDRESS` (:8081;
+   его нет в Service/Ingress, NetworkPolicy пускает Traefik только на 8080), 200 при собранном
+   сайте, иначе 503; лог проверок — только при `LOG_PROBES=true` (`web.logProbes`). gopherd:
+   `--check` запрашивает селектор `/health`, сервер отвечает на него корневым меню только с
+   loopback (exec-пробы идут из пода), для остальных — обычный несуществующий путь; в лог не
+   пишется, кроме ошибок; `--log-probes` (`gopher.logProbes: true`) пишет и их. Свои сообщения Caddy
    (старт, ошибки) — встроенный `format console` с `level_format upper` (без ANSI-цветов).
    Обязательно поддержка Range-запросов (перемотка в плеерах).
    Плейлисты `/playlists/*.m3u8` — с `Content-Disposition: attachment`: иначе Chrome и Safari
