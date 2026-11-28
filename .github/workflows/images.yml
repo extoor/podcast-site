@@ -10,7 +10,8 @@ name: images
 
 on:
   push:
-    branches: [main]
+    # main: the production images (latest); beta: the beta environment (tag beta)
+    branches: [main, beta]
     tags: ['v*']             # path filters don't apply to tags
     paths:
       - Cargo.toml
@@ -75,6 +76,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=schedule,pattern=weekly-{{date 'YYYYMMDD'}}
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/beta' }}
       - uses: docker/build-push-action@v7
         with:
           context: .

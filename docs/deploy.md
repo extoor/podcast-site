@@ -206,6 +206,32 @@ The parameters live in the Application, not in git: applying your
 `deploy/local/argocd-application.yaml` again drops them, and Image Updater sets them anew
 within a couple of minutes.
 
+## Beta environment
+
+New features are tried on a beta site first, deployed the same way as production: the
+long-lived branch `beta` (`main` plus the features being tried, merged into it) →
+CI builds the images with the tag `beta` from every push to it → the Argo CD application
+`podcast-site-beta` installs the chart from that branch into the namespace
+`podcasts-beta`, and Image Updater rolls out each new `beta` build (the second entry in
+`deploy/argocd/image-updater.yaml`). Beta has no Gopher (`gopher.enabled: false`; the
+pages link to production's Gopher), its own domain, certificate and site volume.
+
+`deploy/argocd/application-beta.yaml` is the example; your copy with the real domain goes
+to `deploy/local/`. Beta needs its own rclone Secret, a DNS record for its domain (to the
+same Traefik as production) and its own `media.csi.volumeHandle`:
+
+```sh
+kubectl create namespace podcasts-beta
+kubectl -n podcasts-beta create secret generic podcast-site-rclone --from-file=configData=rclone.conf
+kubectl apply -f deploy/local/argocd-application-beta.yaml
+kubectl apply -n argocd -f deploy/argocd/image-updater.yaml
+```
+
+Trying a feature: merge its branch into `beta` and push (beta takes commits without pull
+requests; CI checks every push). When it is good, the feature branch goes to `main`
+through a pull request as usual; `beta` is brought up to `main` again by merging `main`
+into it.
+
 ## When something goes wrong
 
 See [troubleshooting.md](troubleshooting.md): Helm, the generator, rclone, the web and the

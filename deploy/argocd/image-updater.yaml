@@ -1,6 +1,7 @@
 # Argo CD Image Updater (https://github.com/argoproj-labs/argocd-image-updater, v1.x):
-# follows the `latest` tag of the three images in GHCR and, on every new build, sets
-# the chart's image.tags.<image> parameter of the Application to latest@sha256:<digest>.
+# follows the `latest` tag of the three images in GHCR (production) and the `beta` tag
+# (the beta environment, application-beta.yaml), and on every new build sets the chart's
+# image.tags.<image> parameter of the Application to <tag>@sha256:<digest>.
 # The manifests change, so Argo CD syncs: the pods roll onto the new images and the
 # generator-init hook rebuilds the site at once. Nothing is written to git (write-back
 # through the Argo CD API), so the protected main branch is not in the way.
@@ -36,6 +37,32 @@ spec:
               tag: image.tags.gopherd
         - alias: web
           imageName: ghcr.io/extoor/podcast-site/web:latest
+          commonUpdateSettings:
+            updateStrategy: digest
+            platforms: [linux/amd64, linux/arm64]
+          manifestTargets:
+            helm:
+              tag: image.tags.web
+    - namePattern: podcast-site-beta     # the beta environment: images built from the beta branch
+      images:
+        - alias: generator
+          imageName: ghcr.io/extoor/podcast-site/generator:beta
+          commonUpdateSettings:
+            updateStrategy: digest
+            platforms: [linux/amd64, linux/arm64]
+          manifestTargets:
+            helm:
+              tag: image.tags.generator  # only the tag: the registry stays in values
+        - alias: gopherd
+          imageName: ghcr.io/extoor/podcast-site/gopherd:beta
+          commonUpdateSettings:
+            updateStrategy: digest
+            platforms: [linux/amd64, linux/arm64]
+          manifestTargets:
+            helm:
+              tag: image.tags.gopherd
+        - alias: web
+          imageName: ghcr.io/extoor/podcast-site/web:beta
           commonUpdateSettings:
             updateStrategy: digest
             platforms: [linux/amd64, linux/arm64]

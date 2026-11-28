@@ -4,7 +4,8 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    # beta takes commits without pull requests: its pushes are checked here
+    branches: [main, beta]
   pull_request:
   workflow_dispatch:
 
