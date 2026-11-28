@@ -1,0 +1,13 @@
+[package]
+name = "audiocore"
+version = "0.1.0"
+description = "Audio engine of the text player: streaming gapless MP3 (later tracker formats), built to WebAssembly"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+nanomp3 = { version = "0.2.0", default-features = false, features = ["alloc"] }

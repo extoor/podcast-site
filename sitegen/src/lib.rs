@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 pub mod banner;
+pub mod engine;
 pub mod gopher;
 pub mod html;
 pub mod icon;

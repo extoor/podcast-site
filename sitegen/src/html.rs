@@ -6,6 +6,7 @@
 //! Links are root-relative (`/media/…`, `/playlists/…`), so the pages work on any host.
 
 use crate::banner;
+use crate::engine::Engine;
 use crate::gopher::Server;
 use anyhow::{Result, bail};
 use podscan::catalog::{AudioInfo, Catalog, Episode};
@@ -227,8 +228,16 @@ pub const LANGS: [Lang; 3] = [
 pub type Files = Vec<(String, String)>;
 
 /// Builds all pages in every language. `gopher` is shown in the footer.
-pub fn pages(catalog: &Catalog, gopher: &Server) -> Result<Files> {
+/// `engine`: the player's WebAssembly engine, if the site has it (see `engine`).
+pub fn pages(catalog: &Catalog, gopher: &Server, engine: Option<&Engine>) -> Result<Files> {
     let mut layout = Layout::new(gopher)?;
+    if let Some(e) = engine {
+        // URLs made by sitegen itself (content names): nothing to escape
+        layout.engine = format!(
+            r#", engine: {{ wasm: "{}", worklet: "{}" }}"#,
+            e.wasm_url, e.worklet_url
+        );
+    }
     layout.built = built_time(catalog.generated_at);
     let episodes: HashMap<&str, &Episode> = catalog
         .folders
@@ -358,6 +367,8 @@ struct Layout {
     keynav: String,
     /// When the catalog was built (`built_time`), after the version in the footer.
     built: String,
+    /// The engine option of `TextPlayer.attach` (`, engine: {...}`), or nothing.
+    engine: String,
 }
 
 impl Layout {
@@ -384,6 +395,7 @@ impl Layout {
             textplayer: inline_script(TEXTPLAYER_JS)?,
             keynav: inline_script(KEYNAV_JS)?,
             built: String::new(),
+            engine: String::new(),
         })
     }
 
@@ -541,8 +553,8 @@ impl Layout {
         // the player's help in the page's language: the same code as <html lang>
         let _ = write!(
             body,
-            r#"<script>TextPlayer.attach({{ links: "ol.episodes a[data-file]", lang: "{}" }});</script>"#,
-            lang.code
+            r#"<script>TextPlayer.attach({{ links: "ol.episodes a[data-file]", lang: "{}"{} }});</script>"#,
+            lang.code, self.engine
         );
         body.push_str(&self.keynav);
         let _ = write!(

@@ -72,8 +72,10 @@
 		X-Frame-Options DENY
 		# Keep the site out of search engines and their caches (with /robots.txt)
 		X-Robots-Tag "noindex, nofollow, noarchive, nosnippet, noimageindex"
-		# Pages carry their own inline styles and scripts; only fonts come from Google.
-		Content-Security-Policy "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		# Pages carry their own inline styles and scripts; only fonts come from Google. The
+		# player's WebAssembly engine: its worklet is a script of ours ('self'), the module
+		# needs 'wasm-unsafe-eval', and it fetches the module and the audio (connect-src).
+		Content-Security-Policy "default-src 'none'; script-src 'unsafe-inline' 'self' 'wasm-unsafe-eval'; connect-src 'self'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 		-Server
 	}
 
@@ -96,8 +98,19 @@
 		file_server
 	}
 
-	# Generated pages.
+	# The player's engine (sitegen --engine): file names carry a hash of their contents,
+	# so a file never changes under its name and browsers may keep it for good.
+	handle /player/* {
+		root * {$BUILD_DIR:build}/www
+		header Cache-Control "public, max-age=31536000, immutable"
+		encode zstd gzip
+		file_server
+	}
+
+	# Generated pages. no-cache: revalidated on every visit (cheap with the ETag), so a
+	# rebuilt page and the new engine names it points at are seen at once.
 	handle {
+		header Cache-Control no-cache
 		root * {$BUILD_DIR:build}/www
 		encode zstd gzip
 		file_server {

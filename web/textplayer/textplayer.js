@@ -15,7 +15,7 @@
 
   // Semantic version of this module, its only copy: the title and TextPlayer.version
   // show it. Bump it with every change and add a CHANGELOG.md entry (CI checks).
-  const VERSION = "0.3.0";
+  const VERSION = "0.4.0";
 
   const DEFAULTS = {
     links: "a[data-tp]",                 // CSS selector or an array of <a> elements
@@ -30,6 +30,9 @@
     spectrumCookie: "tp_spectrum",       // cookie that keeps the A key choice (shown / hidden)
     spectrumTheme: "classic",            // analyzer colors: an id from TextPlayer.themes
     spectrumThemeCookie: "tp_spectrum_theme", // cookie that keeps the T key choice (theme id)
+    engine: null,                        // { wasm, worklet }: URLs of the WebAssembly engine
+    gapless: true,                       // with the engine: the next track follows without a gap
+    gaplessCookie: "tp_gapless",         // cookie that keeps the choice in the options (O key)
   };
 
   // The H key help, in the page's language. Each row: the keys, what they do (wrapped
@@ -46,6 +49,7 @@
         ["+ -", "volume up / down"],
         ["A", "show / hide the spectrum analyzer"],
         ["T  Shift+T", "next / previous color theme of the analyzer"],
+        ["O", "options: gapless playback, the analyzer and its theme; O or Esc closes them"],
         ["H", "this help; H or Esc closes it"],
         ["Esc  Bksp", "close the player"],
         ["Mouse", "click or drag the progress and volume bars; a click outside the window closes it"],
@@ -62,6 +66,7 @@
         ["+ -", "громче / тише"],
         ["A", "показать / спрятать анализатор спектра"],
         ["T  Shift+T", "следующая / предыдущая цветовая тема анализатора"],
+        ["O", "настройки: бесшовное воспроизведение, анализатор и его тема; закрыть — O или Esc"],
         ["H", "эта справка; закрыть — H или Esc"],
         ["Esc  Bksp", "закрыть плеер"],
         ["Мышь", "клик и перетаскивание по полосам прогресса и громкости; клик мимо окна закрывает его"],
@@ -78,6 +83,7 @@
         ["+ -", "гучніше / тихіше"],
         ["A", "показати / сховати аналізатор спектра"],
         ["T  Shift+T", "наступна / попередня кольорова тема аналізатора"],
+        ["O", "налаштування: безшовне відтворення, аналізатор і його тема; закрити — O або Esc"],
         ["H", "ця довідка; закрити — H або Esc"],
         ["Esc  Bksp", "закрити плеєр"],
         ["Миша", "клік і перетягування по смугах прогресу та гучності; клік поза вікном закриває його"],
@@ -85,6 +91,19 @@
     },
   };
   HELP.ua = HELP.uk;                    // the country code is a common mistake for the language
+  // The O key options, in the page's language.
+  const OPTIONS = {
+    en: { title: "Options", gapless: "Gapless playback", spectrum: "Spectrum analyzer", theme: "Analyzer theme",
+      on: "on", off: "off", shown: "shown", hidden: "hidden", na: "not available",
+      keys: "↑↓ select   ←→ Space change   O Esc close" },
+    ru: { title: "Настройки", gapless: "Бесшовное воспроизведение", spectrum: "Анализатор спектра", theme: "Тема анализатора",
+      on: "вкл", off: "выкл", shown: "показан", hidden: "скрыт", na: "недоступно",
+      keys: "↑↓ выбор   ←→ пробел изменить   O Esc закрыть" },
+    uk: { title: "Налаштування", gapless: "Безшовне відтворення", spectrum: "Аналізатор спектра", theme: "Тема аналізатора",
+      on: "увімк", off: "вимк", shown: "показано", hidden: "приховано", na: "недоступно",
+      keys: "↑↓ вибір   ←→ пробіл змінити   O Esc закрити" },
+  };
+  OPTIONS.ua = OPTIONS.uk;
   // Words of `text` in lines of at most `n` characters.
   const wrap = (text, n) => text.split(" ").reduce((lines, w) => {
     const last = lines[lines.length - 1];
@@ -199,6 +218,238 @@
    *   data-size (bytes), data-format (e.g. "MPEG-1 Layer III  192 kbps CBR  44.1 kHz  Stereo").
    * Returns a controller { open(index), close(), audio } or null if there are no links.
    */
+  // --- WebAssembly engine ---------------------------------------------------------
+  // With options.engine ({ wasm, worklet }: URLs of audiocore's module and worklet.js),
+  // MP3 plays through Web Audio instead of an <audio> element: the page downloads the
+  // file (paced: about two minutes ahead), the worklet decodes it with audiocore. That
+  // makes gapless playback possible: the next track is fetched ahead and starts on the
+  // very next sample. The object below stands in for the <audio> element: the same
+  // properties, methods and events the player uses.
+  const PACE = 120;                     // seconds of compressed audio kept ahead
+  const CHUNK = 512 * 1024;             // bytes per range request: about 20 s at 192 kbps
+  function wasmAudio(cfg) {             // cfg: { wasm, worklet, gapless, next(), fail() }
+    const ev = new EventTarget();
+    const fire = (type) => ev.dispatchEvent(new Event(type));
+    const AC = global.AudioContext || global.webkitAudioContext;
+    let ctx;
+    // the library is 44.1 kHz: a context at that rate needs no resampling in the worklet
+    try { ctx = new AC({ sampleRate: 44100, latencyHint: "playback" }); } catch { ctx = new AC(); }
+    const gain = ctx.createGain();
+    gain.connect(ctx.destination);
+    let node = null, port = null, dead = false;
+    const queue = [];                    // messages sent before the worklet is up
+    const post = (m, transfer = []) => (port ? port.postMessage(m, transfer) : queue.push([m, transfer]));
+    const taps = [];                     // analysers waiting for the node
+    const ready = (async () => {
+      const res = await fetch(cfg.wasm);
+      if (!res.ok) throw new Error(`${cfg.wasm}: ${res.status}`);
+      const module = await WebAssembly.compile(await res.arrayBuffer());
+      await ctx.audioWorklet.addModule(cfg.worklet);
+      node = new global.AudioWorkletNode(ctx, "textplayer", {
+        numberOfInputs: 0, outputChannelCount: [2], processorOptions: { module, gapless: cfg.gapless },
+      });
+      node.connect(gain);
+      taps.splice(0).forEach((an) => node.connect(an));
+      port = node.port;
+      port.onmessage = (e) => message(e.data);
+      for (const [m, t] of queue.splice(0)) port.postMessage(m, t);
+    })();
+    ready.catch(() => { if (!dead) { api.destroy(); cfg.fail(); } });
+
+    // A track: one download of one file into one worklet stream. A seek is a new track
+    // of the same file that starts at `base` seconds; it keeps the file's format.
+    let seq = 0, cur = null, next = null, paused = true, ended = false;
+    let ticks = [];                      // downloads waiting for the next position report
+    const tick = () => new Promise((r) => ticks.push(r));
+    const byId = (id) => (cur && cur.id === id ? cur : next && next.id === id ? next : null);
+    const duration = (t) => !t ? NaN : t.total > 0 ? t.total / t.rate
+      : t.bitrate && t.size ? (t.size - t.start) * 8 / (t.bitrate * 1000) : NaN;
+    const ahead = (t) => (t.bitrate ? t.pending / (t.bitrate * 125) : t.pending / 2e5);
+
+    function track(url, base, from) {
+      const t = { id: ++seq, url, base, frames: 0, pending: 0, received: 0, done: false,
+        rate: 0, total: -1, bitrate: 0, start: 0, padding: 0, size: 0, ctrl: null };
+      if (from) Object.assign(t, { rate: from.rate, total: from.total, bitrate: from.bitrate,
+        start: from.start, padding: from.padding, size: from.size });
+      return t;
+    }
+    function stop(t) {
+      if (!t) return;
+      if (t.ctrl) t.ctrl.abort();
+      post({ t: "drop", id: t.id });
+    }
+    // Downloads `t` from byte `offset` in chunks: one short range request each, made only
+    // when the worklet runs low (PACE ahead). No connection is held open for minutes: a
+    // paced long download got cut somewhere on the way (a proxy, a port forward) and the
+    // player stalled. A failed request is retried with a growing delay while the track
+    // is still wanted.
+    async function pump(t, offset) {
+      const ctrl = t.ctrl = new AbortController();
+      let pos = offset, tries = 0;
+      // hands bytes to the worklet; returns how many (the buffer is transferred: empty after)
+      const give = (buf) => {
+        const n = buf.byteLength;
+        pos += n;
+        t.received += n;
+        t.pending += n;
+        post({ t: "data", id: t.id, buf }, [buf]);
+        if (t === cur) fire("progress");
+        return n;
+      };
+      while (!ctrl.signal.aborted) {
+        while (ahead(t) > (t.bitrate ? PACE : 1) && !ctrl.signal.aborted) await tick();
+        if (ctrl.signal.aborted) return;
+        try {
+          const res = await fetch(t.url, { signal: ctrl.signal, headers: { Range: `bytes=${pos}-${pos + CHUNK - 1}` } });
+          if (res.status === 416) break;                  // asked past the end
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          if (res.status !== 206) {
+            // no range support: the whole file in one answer, usable only from the start
+            if (pos) throw new Error("the server ignores Range");
+            t.base = 0;
+            give(await res.arrayBuffer());
+            break;
+          }
+          const range = /\/(\d+)$/.exec(res.headers.get("Content-Range") || "");
+          if (range) t.size = Number(range[1]);
+          const n = give(await res.arrayBuffer());
+          tries = 0;
+          if (!n || (t.size && pos >= t.size)) break;
+        } catch (e) {
+          if (ctrl.signal.aborted) return;
+          global.console.warn(`textplayer: ${t.url} from byte ${pos}: ${e.message}; trying again`);
+          if (t === cur) fire("waiting");
+          await new Promise((r) => global.setTimeout(r, Math.min(15000, 1000 * 2 ** tries++)));
+        }
+      }
+      if (ctrl.signal.aborted) return;
+      t.done = true;
+      post({ t: "end", id: t.id });
+      if (t === cur) { fire("progress"); preload(); }
+    }
+    // gapless: once the current file is downloaded, fetch the next one ahead
+    function preload() {
+      if (!cfg.gapless || next || !cur || !cur.done) return;
+      const url = cfg.next();
+      if (!url) return;
+      next = track(url, 0);
+      post({ t: "open", id: next.id, trim: 0 });
+      post({ t: "next", id: next.id });
+      pump(next, 0);
+    }
+    function start(url, at) {
+      ended = false;
+      if (!at && next && next.url === url) {           // already on its way: just switch
+        stop(cur);
+        cur = next;
+        next = null;
+        post({ t: "play", id: cur.id });
+      } else {
+        const from = cur && cur.url === url && cur.rate ? cur : null;
+        stop(cur);
+        stop(next);
+        next = null;
+        cur = track(url, at, from);
+        // a seek: the byte for that time (constant bitrate), and the end cut kept exact
+        const offset = at && from ? Math.floor(from.start + (at / duration(from)) * (from.size - from.start)) : 0;
+        post({ t: "open", id: cur.id, trim: offset ? from.padding : 0 });
+        post({ t: "play", id: cur.id });
+        pump(cur, offset);
+      }
+      fire("durationchange");
+      fire("timeupdate");
+    }
+    function message(m) {
+      switch (m.t) {
+        case "format": {
+          const t = byId(m.id);
+          if (t && !t.rate) {
+            Object.assign(t, { rate: m.rate, total: m.total, bitrate: m.bitrate, start: m.start, padding: m.padding });
+            if (t === cur) { fire("durationchange"); fire("loadedmetadata"); }
+          }
+          break;
+        }
+        case "time":
+          if (cur && m.id === cur.id) { cur.frames = m.frames; cur.pending = m.pending; }
+          if (next && m.nextId === next.id) next.pending = m.nextPending;
+          ticks.splice(0).forEach((r) => r());
+          fire("timeupdate");
+          break;
+        case "waiting":
+          fire("waiting");
+          break;
+        case "ended":
+          if (!cur || m.id !== cur.id) break;
+          if (m.next !== null && next && m.next === next.id) {
+            cur = next;                                   // went on without a gap
+            next = null;
+            fire("advance");
+            fire("durationchange");
+            preload();
+          } else {
+            cur.frames = Math.round(((duration(cur) || 0) - cur.base) * ctx.sampleRate);
+            ended = true;
+            fire("ended");
+          }
+          break;
+      }
+    }
+
+    const api = {
+      NETWORK_IDLE: 1, HAVE_FUTURE_DATA: 3, preload: "auto",
+      ctx,
+      get src() { return cur ? cur.url : ""; },
+      set src(url) { start(url, 0); },
+      get paused() { return paused; },
+      get ended() { return ended; },
+      get duration() { return duration(cur); },
+      get currentTime() { return cur ? cur.base + cur.frames / ctx.sampleRate : 0; },
+      set currentTime(t) {
+        const d = duration(cur);
+        if (cur && isFinite(d)) start(cur.url, Math.max(0, Math.min(d - 0.05, t)));
+      },
+      get volume() { return gain.gain.value; },
+      set volume(v) { gain.gain.value = v; fire("volumechange"); },
+      get buffered() {
+        const t = cur, end = t ? (t.done ? duration(t) : t.base + (t.bitrate ? t.received / (t.bitrate * 125) : 0)) : 0;
+        return { length: t ? 1 : 0, start: () => (t ? t.base : 0), end: () => end || 0 };
+      },
+      get networkState() { return cur && !cur.done ? 2 : 1; },
+      get readyState() { return cur && cur.pending > 0 ? 4 : 0; },
+      get gapless() { return cfg.gapless; },
+      set gapless(on) {
+        cfg.gapless = !!on;
+        post({ t: "gapless", on: cfg.gapless });
+        if (on) preload(); else { stop(next); next = null; }
+      },
+      play() {
+        if (ended && cur) start(cur.url, 0);
+        paused = false;
+        post({ t: "resume" });
+        fire("play");
+        return Promise.all([ctx.resume(), ready]).then(() => {});
+      },
+      pause() {
+        paused = true;
+        post({ t: "pause" });
+        fire("pause");
+      },
+      // the analyser listens to the worklet's output (before the volume)
+      tap(an) { if (node) node.connect(an); else taps.push(an); },
+      destroy() {
+        dead = true;
+        stop(cur);
+        stop(next);
+        cur = next = null;
+        ctx.close().catch(() => {});
+      },
+      addEventListener: (...a) => ev.addEventListener(...a),
+      removeEventListener: (...a) => ev.removeEventListener(...a),
+    };
+    post({ t: "pause" });
+    return api;
+  }
+
   function attach(options) {
     const o = Object.assign({}, DEFAULTS, options);
     const doc = global.document;
@@ -210,10 +461,31 @@
     const lang = (o.lang || doc.documentElement.lang || "en").toLowerCase().split("-")[0];
     const help = HELP[lang] || HELP.en;
     let helpShown = false;                 // the H key: the help instead of the key line
+    let optsShown = false, optsAt = 0;     // the O key: the options instead of it, the row picked
     const BROWSER = browserName();
-    const audio = new Audio();
-    audio.preload = "auto";
     let cur = -1;
+    // Audio from another origin (without CORS) can't be fetched, nor read by Web Audio.
+    const sameOrigin = links.every((a) => {
+      try { return new URL(a.href, global.location.href).origin === global.location.origin; }
+      catch { return false; }
+    });
+    // The WebAssembly engine when it is given and can run; else an <audio> element. If the
+    // engine fails to load (old browser, blocked file), the element takes over.
+    const canEngine = o.engine && o.engine.wasm && o.engine.worklet && sameOrigin
+      && global.AudioWorkletNode && global.WebAssembly && links.every((a) => /\.mp3$/i.test(new URL(a.href, global.location.href).pathname));
+    let audio = canEngine ? wasmAudio({
+      // the visitor's choice from the options (cookie) over the page's default
+      wasm: o.engine.wasm, worklet: o.engine.worklet,
+      gapless: readCookie(o.gaplessCookie) ? readCookie(o.gaplessCookie) === "1" : o.gapless,
+      next: () => (cur + 1 < links.length ? links[cur + 1].href : null),
+      fail: () => {
+        audio = new Audio();
+        bind(audio);
+        if (spec.an) Object.assign(spec, { an: null, ctx: null });   // rebuilt for the element
+        if (cur >= 0 && !overlay.hidden) open(cur);
+      },
+    }) : new Audio();
+    audio.preload = "auto";
 
     const overlay = doc.createElement("div");
     overlay.className = "tp-overlay";
@@ -236,9 +508,23 @@
         : g);
     };
     const sep = () => `<span class="tp-fr">╟${"─".repeat(W)}╢</span>`;
-    // a separator with a label near its right end: ╟────── Fire ─╢
-    const sepLabel = (label) => `<span class="tp-fr">╟${"─".repeat(W - label.length - 3)} </span>` +
-      `<span class="tp-help">${esc(label)}</span><span class="tp-fr"> ─╢</span>`;
+    // A separator with labels: `center` in the middle (the open panel's title), `right`
+    // near the right end (a theme's name): ╟──── Options ──────── Fire ─╢. Without
+    // room for both, the right one is left out.
+    const sepWith = (center, right) => {
+      const parts = [];
+      if (center) parts.push([Math.floor((W - center.length - 2) / 2), center]);
+      if (right) {
+        const at = W - right.length - 3;
+        if (!parts.length || at > parts[0][0] + parts[0][1].length + 2) parts.push([at, right]);
+      }
+      let out = `<span class="tp-fr">╟`, x = 0;
+      for (const [at, text] of parts) {
+        out += `${"─".repeat(at - x)} </span><span class="tp-help">${esc(text)}</span><span class="tp-fr"> `;
+        x = at + text.length + 2;
+      }
+      return `${out}${"─".repeat(W - x)}╢</span>`;
+    };
     const L = (s) => seg(s, "tp-lb"), V = (s) => seg(s, "tp-va");
     // Key help is plain text: keyboard only, the mouse does nothing here.
     // "tp-st": arrow glyphs may come from a fallback font; keep them out of the line height
@@ -290,7 +576,8 @@
         // decoder left, buffer (time buffered ahead, as on the progress line) in the
         // middle, volume right: the free columns are shared out between them
         row(...spread(
-          [L("Decoder: "), V(BROWSER)],
+          // who decodes: the WebAssembly engine, or the browser behind <audio>
+          [L("Decoder: "), V(audio.tap ? "audiocore" : BROWSER)],
           [L("Buf: "), seg(bar(buf, 13), "tp-lb"), V(" " + time(ahead))],
           [L("Vol: "), seg(bar(audio.volume, 13), "tp-lb tp-slider", 'data-act="vol"'), V(" " + db.padStart(5))],
         )),
@@ -301,10 +588,12 @@
         // the analyzer belongs to the playback section: no separator above it
         ...(spec.on && spec.shown ? [`<span class="tp-specbox">${Array.from({ length: spec.rows }, (_, r) =>
           `<span class="tp-fr">║</span> <span class="tp-spec">${spec.line(r)}</span> <span class="tp-fr">║</span>`).join("\n")}</span>`] : []),
-        // for a second after T the separator under the analyzer names the new theme
-        spec.on && spec.shown && spec.named ? sepLabel(THEMES[spec.theme].name) : sep(),
-        ...(helpShown ? helpRows() : [row(...keys(["Spc", "next"], ["P", "prev"], ["←→↑↓", "seek"],
-          ["S", "pause"], ["+-", "vol"], ["H", "help"], ["Esc", "exit"]))]),
+        // above the help or the options their title; for a second after T, the theme's name
+        sepWith(helpShown ? help.title : optsShown ? optsText.title : "",
+          spec.on && spec.shown && spec.named ? THEMES[spec.theme].name : ""),
+        // Esc is in the help: the line has no room left for it next to O
+        ...(helpShown ? helpRows() : optsShown ? optsRows() : [row(...keys(["Spc", "next"], ["P", "prev"],
+          ["←→↑↓", "seek"], ["S", "pause"], ["+-", "vol"], ["O", "opts"], ["H", "help"]))]),
         `<span class="tp-fr">╚${"═".repeat(W)}╝</span>`,
       ].join("\n");
     }
@@ -313,10 +602,6 @@
     // Web Audio: the element feeds an AnalyserNode. Routing an element through Web
     // Audio is for good, and audio from another origin (without CORS) would then come
     // out silent, so it is used only when every link is on this site.
-    const sameOrigin = links.every((a) => {
-      try { return new URL(a.href, global.location.href).origin === global.location.origin; }
-      catch { return false; }
-    });
     const spec = {
       on: o.spectrum && sameOrigin && !!(global.AudioContext || global.webkitAudioContext),
       shown: readCookie(o.spectrumCookie) !== "0",   // the A key; shown unless turned off
@@ -372,13 +657,17 @@
       if (!spec.an) {
         try {
           const AC = global.AudioContext || global.webkitAudioContext;
-          spec.ctx = new AC();
-          const src = spec.ctx.createMediaElementSource(audio);
+          // the engine has its own context and taps its output; an element is routed
+          // through the analyser to the speakers
+          spec.ctx = audio.ctx || new AC();
           spec.an = spec.ctx.createAnalyser();
           spec.an.fftSize = 4096;
           spec.an.smoothingTimeConstant = 0.5;
-          src.connect(spec.an);
-          spec.an.connect(spec.ctx.destination);
+          if (audio.tap) audio.tap(spec.an);
+          else {
+            spec.ctx.createMediaElementSource(audio).connect(spec.an);
+            spec.an.connect(spec.ctx.destination);
+          }
           spec.data = new Float32Array(spec.an.frequencyBinCount);
           spec.levels = new Array(spec.bands).fill(0);
           spec.peaks = new Array(spec.bands).fill(0);
@@ -450,7 +739,7 @@
     // under itself. Without an analyzer its keys are left out.
     function helpRows() {
       const kw = 12, tw = W - 2 - kw;
-      const lines = [row(L(help.title))];
+      const lines = [];                                       // the title is in the separator
       for (const [k, text] of help.rows) {
         if (!spec.on && /^[AT]\b/.test(k)) continue;
         wrap(text, tw).forEach((t, i) => lines.push(row(V((i ? "" : k).padEnd(kw)), seg(t, "tp-help"))));
@@ -459,10 +748,59 @@
     }
     function helpToggle(on = !helpShown) {
       helpShown = on;
+      if (on) optsShown = false;
       render();
+    }
+    // The options: each with its current value; ←→ (or Space, Enter) change the one
+    // picked with ↑↓. Every change is kept in a cookie, like the A and T keys.
+    const optsText = OPTIONS[lang] || OPTIONS.en;
+    const optsList = () => [
+      { label: optsText.gapless, can: () => "gapless" in audio,
+        value: () => (audio.gapless ? `[■] ${optsText.on}` : `[ ] ${optsText.off}`),
+        change: () => {
+          audio.gapless = !audio.gapless;
+          writeCookie(o.gaplessCookie, audio.gapless ? "1" : "0");
+        } },
+      { label: optsText.spectrum, can: () => spec.on,
+        value: () => (spec.shown ? `[■] ${optsText.shown}` : `[ ] ${optsText.hidden}`),
+        change: () => specToggle() },
+      { label: optsText.theme, can: () => spec.on,
+        value: () => `‹ ${THEMES[spec.theme].name} ›`,
+        change: (back) => specTheme(back) },
+    ];
+    function optsRows() {
+      const list = optsList(), lw = Math.min(40, Math.max(...list.map((x) => x.label.length)));
+      const lines = [];
+      list.forEach((x, i) => {
+        // the picked row: a marker and the label highlighted; the value three columns on
+        const mark = i === optsAt ? "► " : "  ";
+        lines.push(row(seg(mark, "tp-va"), seg(fit(x.label, lw), i === optsAt ? "tp-ttl" : "tp-lb"),
+          seg(" ".repeat(lw - Math.min(lw, x.label.length) + 3)), V(x.can() ? x.value() : optsText.na)));
+      });
+      lines.push(row(seg("")), row(seg(optsText.keys, "tp-help")));   // the keys, a line apart
+      return lines;
+    }
+    function optsToggle(on = !optsShown) {
+      optsShown = on;
+      if (on) helpShown = false;
+      render();
+    }
+    // a key while the options are open: true if it was theirs
+    function optsKey(code, shift) {
+      const list = optsList(), x = list[optsAt];
+      if (code === "ArrowUp" || code === "ArrowDown") {
+        optsAt = (optsAt + (code === "ArrowUp" ? list.length - 1 : 1)) % list.length;
+      } else if (["ArrowLeft", "ArrowRight", "Space", "Enter", "NumpadEnter"].includes(code)) {
+        if (x.can()) x.change(code === "ArrowLeft" || shift);
+      } else {
+        return false;
+      }
+      render();
+      return true;
     }
     function close() {
       helpShown = false;
+      optsShown = false;
       audio.pause();
       overlay.hidden = true;
       if (cur >= 0) {
@@ -480,10 +818,21 @@
       open(i);
     }));
 
-    for (const ev of ["timeupdate", "progress", "suspend", "waiting", "volumechange", "play", "pause", "durationchange", "loadedmetadata"]) {
-      audio.addEventListener(ev, () => { if (!overlay.hidden) render(); });
+    function bind(a) {
+      for (const ev of ["timeupdate", "progress", "suspend", "waiting", "volumechange", "play", "pause", "durationchange", "loadedmetadata"]) {
+        a.addEventListener(ev, () => { if (a === audio && !overlay.hidden) render(); });
+      }
+      a.addEventListener("ended", () => { if (a === audio && cur + 1 < links.length) open(cur + 1); });
+      // the engine went on to the next track by itself (gapless): follow it in the list
+      a.addEventListener("advance", () => {
+        if (a !== audio || cur + 1 >= links.length) return;
+        itemOf(links[cur]).classList.remove(o.playingClass);
+        cur += 1;
+        itemOf(links[cur]).classList.add(o.playingClass);
+        if (!overlay.hidden) render();
+      });
     }
-    audio.addEventListener("ended", () => { if (cur + 1 < links.length) open(cur + 1); });
+    bind(audio);
 
     // The mouse works only on the two sliders (progress and volume).
     // The window is redrawn several times a second, so a "click" (down and up on the
@@ -516,10 +865,12 @@
     doc.addEventListener("keydown", (e) => {
       if (overlay.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
       // e.code, so the keys work in any keyboard layout
+      if (optsShown && optsKey(e.code, e.shiftKey)) { e.preventDefault(); return; }
+      // Esc / Backspace close an open panel (help, options) first, then the player
+      const back = () => (helpShown ? helpToggle(false) : optsShown ? optsToggle(false) : close());
       const act = {
         Space: () => open(cur + 1), KeyP: () => open(cur - 1), KeyS: toggle, KeyA: specToggle, KeyT: () => specTheme(e.shiftKey), KeyH: () => helpToggle(),
-        // with the help open, Esc / Backspace close the help first
-        Escape: () => (helpShown ? helpToggle(false) : close()), Backspace: () => (helpShown ? helpToggle(false) : close()),
+        KeyO: () => optsToggle(), Escape: back, Backspace: back,
         Comma: () => seekBy(-10), Period: () => seekBy(10), ArrowLeft: () => seekBy(-10), ArrowRight: () => seekBy(10),
         ArrowUp: () => seekBy(60), ArrowDown: () => seekBy(-60),   // bigger steps, as in mpv
         Equal: () => volBy(1 / 16), NumpadAdd: () => volBy(1 / 16), Minus: () => volBy(-1 / 16), NumpadSubtract: () => volBy(-1 / 16),

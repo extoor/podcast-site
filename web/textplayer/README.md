@@ -20,7 +20,7 @@ One file, no dependencies; it adds its own styles.
 ╟──────────────────────────────────────────────────────────────────────╢
 ║ ► 00:02 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 59:59 ║
 ╟──────────────────────────────────────────────────────────────────────╢
-║ Spc:next | P:prev | ←→↑↓:seek | S:pause | +-:vol | H:help | Esc:exit ║
+║ Spc:next | P:prev | ←→↑↓:seek | S:pause | +-:vol | O:opts | H:help   ║
 ╚══════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -81,6 +81,9 @@ beforehand (in podcast-site this is done by `podscan`, module `mpeg.rs`).
 | `spectrumCookie` | `"tp_spectrum"`      | cookie that keeps the `A` key choice for a year (`1` shown, `0` hidden) |
 | `spectrumTheme` | `"classic"`            | the analyzer's color theme until the visitor picks one with `T` (see below) |
 | `spectrumThemeCookie` | `"tp_spectrum_theme"` | cookie that keeps the `T` key choice for a year (the theme id) |
+| `engine`       | `null`                  | `{ wasm, worklet }`: URLs of `audiocore.wasm` and `worklet.js` — the WebAssembly engine (see below) |
+| `gapless`      | `true`                  | with the engine: the next track follows the current one without a gap |
+| `gaplessCookie` | `"tp_gapless"`         | cookie that keeps the choice made in the options (`O`) for a year; it wins over `gapless` |
 
 `attach` returns `{ open(index), close(), audio }`, or `null` if there are no links.
 `TextPlayer.themes` lists the analyzer themes as `{ id, name }`.
@@ -100,13 +103,38 @@ the analyzer names the new one (`─ Fire ─`). Each colors the segments by the
 | `amber`     | Amber     | brown to amber, like an amber CRT |
 | `synthwave` | Synthwave | violet, magenta, pink, cyan |
 
+## WebAssembly engine
+
+With the `engine` option MP3 plays through Web Audio instead of an `<audio>` element. The
+page downloads the file itself, in range requests of 512 KB as needed to stay about two
+minutes ahead (a failed request is retried), and an AudioWorklet
+(`worklet.js`) decodes it with [audiocore](../../audiocore) — Rust built to WebAssembly,
+bit-exact with minimp3. What it adds:
+
+- **gapless playback** (`gapless: true`): the encoder delay and padding are cut off (from
+  the LAME tag), the next track is downloaded once the current one is, and it starts on
+  the very next sample; with `gapless: false` it starts when the current one has ended;
+- seeking is a new range request from the byte for that time (constant bitrate), and the
+  end of the track stays exact after it.
+
+While the engine plays, the `Decoder:` field reads `audiocore`; with `<audio>` it names the
+browser.
+
+The engine is used only when the links are on the page's own site and end in `.mp3`, and
+the browser has AudioWorklet and WebAssembly; if it fails to load, the player falls back
+to `<audio>` and goes on with the same track. Serve both files with a name that changes
+with their contents (sitegen: `player/audiocore.<hash>.wasm`) and a long cache; the
+Content-Security-Policy needs `script-src 'self' 'wasm-unsafe-eval'` and `connect-src 'self'`.
+
 ## Controls
 
 - Keys: Space — next track, `P` — previous, `<` `>` or `←` `→` — seek 10 seconds, `↑` `↓` — seek a minute,
   `S` — pause, `+` `-` — volume, `A` — show / hide the spectrum analyzer (the window
   resizes to fit, the choice is kept in a cookie), `T` / `Shift+T` — next / previous analyzer
   theme (kept in a cookie too; shows a hidden analyzer), `H` — a detailed help in place of
-  the key line (every key and the mouse, in the page's language), `Esc` or
+  the key line (every key and the mouse, in the page's language), `O` — the options in its
+  place: gapless playback, the analyzer and its theme (`↑↓` pick, `←→` / Space / Enter
+  change; each choice is kept in a cookie), `Esc` or
   Backspace — close (with the help open: close the help). Keys are matched by `e.code`, so they
   work in any keyboard layout.
 - Mouse: click or drag on the progress and volume bars; a click outside the window closes it.

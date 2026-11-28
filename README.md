@@ -34,6 +34,7 @@ never per request; the servers only read files.
 | [`gopherd`](gopherd/) | Read-only Gopher server (Rust, tokio). |
 | [`caddy/Caddyfile`](caddy/Caddyfile) | Web server config: pages, playlists, audio with Range requests (seeking). |
 | [`web/textplayer`](web/textplayer/) | The DOS-style audio player; a standalone module with no dependencies, usable in other projects. |
+| [`audiocore`](audiocore/) | The player's audio engine (Rust → WebAssembly): streaming MP3 with gapless playback; sitegen puts it on the site as `player/audiocore.<hash>.wasm`. |
 | [`web/keynav`](web/keynav/) | Keyboard navigation for the pages: ↑↓ to select, Enter to open or play, Backspace to go back. |
 
 Terms: a **podcast** is a show (e.g. Zebra), a **folder** is a directory in the media

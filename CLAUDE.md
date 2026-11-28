@@ -75,7 +75,21 @@
    Заголовок «KISS FM / PODCASTS» — пиксельный шрифт из блоков `█` с контурами из
    box-drawing символов и радужным градиентом (в Gopher — тот же баннер без цвета).
    Внешние CSS/JS/шрифты — только с CDN (Google Fonts, cdnjs/jsDelivr), локальных
-   статических файлов нет; свои стили и скрипты — inline в странице.
+   статических файлов нет; свои стили и скрипты — inline в странице. Исключение — движок
+   плеера: `sitegen --engine <audiocore.wasm>` (или `$AUDIOCORE_WASM`, в образе generator задан)
+   кладёт `player/audiocore.<хеш>.wasm` и `player/worklet.<хеш>.js` — имя из FNV-1a
+   содержимого (`sitegen/src/engine.rs`); Caddy отдаёт `/player/*` с `immutable` на год,
+   страницы — с `no-cache`, так что новый модуль подхватывается сразу.
+   **audiocore** (Rust → wasm32-unknown-unknown, без wasm-bindgen, MIT): потоковый MP3 на
+   `nanomp3` (порт minimp3, MIT/Apache; symphonia не берём — MPL-2.0 нет в deny.toml),
+   ленивое декодирование, gapless по LAME-тегу (как `nanomp3::decode_all`; хвостовые теги
+   срезаются в `finish`, иначе теряется последний кадр), после перемотки — `trim_end(padding)`.
+   Тест `audiocore/tests/mp3_stream.rs` сверяет побитово с `decode_all` (реальные файлы —
+   через `AUDIOCORE_MP3`). Плеер с `engine` играет через AudioWorklet (`web/textplayer/worklet.js`),
+   качает сам с ограничением ~2 мин вперёд, перемотка — Range; опция `gapless` (по умолчанию
+   вкл.): следующий трек качается заранее и начинается со следующего сэмпла. Без движка,
+   при ошибке загрузки или в старом браузере — `<audio>`. Дальше в этой ветке (`wasm-player`):
+   MOD/S3M/XM (libopenmpt или xmrsplayer), PT2/PT3 (эмуляция AY), поддержка в podscan/Caddy/Gopher.
    Исключение — иконки сайта: `sitegen` сам рисует «FM» шрифтом баннера с радугой и тенью
    (`sitegen/src/icon.rs`, свой PNG/ICO без зависимостей): `favicon.ico` (16/32/48),
    `icon-192.png`, `apple-touch-icon.png` (180, с полями под скругление); CSP — `img-src 'self'`.
@@ -83,7 +97,9 @@
    по центру, рамки из box-drawing, анализатор спектра на Web Audio; клавиши Spc/P, ←→ — 10 с,
    ↑↓ — минута, S, +-, A — показать/спрятать анализатор (cookie `tp_spectrum`), T / Shift+T —
    цветовая тема анализатора (7 тем, `TextPlayer.themes`; cookie `tp_spectrum_theme`, название на
-   секунду появляется в разделителе под анализатором), H — подробная справка вместо строки подсказок (en/ru/uk:
+   секунду появляется в разделителе под анализатором), O — окно настроек на её месте (бесшовность — cookie `tp_gapless`, анализатор, тема; ↑↓ выбор,
+   ←→/пробел/Enter изменить; в строке подсказок `O:opts` вместо `Esc:exit`), H — подробная
+   справка вместо строки подсказок (en/ru/uk:
    sitegen передаёт `lang` из `LANGS` — тот же код, что в `<html lang>`; тест проверяет, что у
    плеера есть справка на каждом языке сайта; при открытой справке Esc/Backspace закрывают её),
    закрыть — Esc или Backspace). Это отдельный переиспользуемый модуль без зависимостей
@@ -99,7 +115,8 @@
    плейлисты и, при необходимости, аудио.
 4. **HTTPS** — Caddy, конфиг `caddy/Caddyfile`: отдаёт `build/www`, плейлисты и аудио из
    `/media/podcasts` (под `/media/` — только `*.mp3`: в библиотеке есть чужой `index.html`).
-   CSP разрешает только inline-скрипты/стили и шрифты Google; админ-API выключен.
+   CSP разрешает inline-скрипты/стили, шрифты Google и движок плеера (`script-src 'self'
+   'wasm-unsafe-eval'`, `connect-src 'self'`); админ-API выключен.
    Реальный IP посетителя — из `X-Real-IP`/`X-Forwarded-For` только от `TRUSTED_PROXIES`
    (чарт: `web.trustedProxies`, по умолчанию `private_ranges`), в логе — `client_ip`.
    Лог доступа — Combined Log Format через плагин `caddyserver/transform-encoder` (закреплён на
@@ -180,6 +197,10 @@
   `[English](README.md) | **Русский**`. Версии держим синхронными: правка одной —
   правка обеих.
 - Сообщения программ пользователю (вывод CLI, ошибки) — на русском.
+- Модули с версией ведут changelog по semver: `web/textplayer/CHANGELOG.md` (версия —
+  `VERSION` в `textplayer.js`), `audiocore/CHANGELOG.md` (версия — `Cargo.toml`). Любая правка
+  модуля — запись в его changelog и новая версия (пока версия не выпущена в main, правки
+  дописываются в её запись); CI проверяет верхнюю запись и подъём версии в PR.
 - `/target` и `/build` в `.gitignore`.
 
 ## Дорожная карта

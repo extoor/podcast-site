@@ -19,6 +19,7 @@ on:
       - podscan/**
       - sitegen/**
       - gopherd/**
+      - audiocore/**
       - web/**
       - podcasts.toml
       - caddy/**
@@ -54,7 +55,7 @@ jobs:
       - name: Site version
         id: rev
         run: |
-          echo "commit=$(git log -1 --format=%H -- Cargo.toml Cargo.lock podscan sitegen gopherd web \
+          echo "commit=$(git log -1 --format=%H -- Cargo.toml Cargo.lock podscan sitegen gopherd audiocore web \
             podcasts.toml caddy docker .github/workflows/images.yml ':(glob,exclude)**/*.md')" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
