@@ -7,6 +7,7 @@
 use crate::selector::{self, Reject, Root, Route};
 use std::future::Future;
 use std::io;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,6 +38,20 @@ pub struct Config {
     pub read_timeout: Duration,
     /// Time allowed for each chunk to be read from disk and written to the client.
     pub io_timeout: Duration,
+    /// Log the health checks ([`HEALTH`] requests, e.g. Kubernetes probes) as well;
+    /// off, only their failures are logged.
+    pub log_probes: bool,
+}
+
+/// The selector of health checks (`gopherd --check`): served as the root menu, so a
+/// check passes only once the site is built, but kept out of the log. Only from the
+/// loopback address (the probes run `gopherd --check 127.0.0.1:70` inside the pod): for
+/// anyone else it is an ordinary path, which doesn't exist.
+pub const HEALTH: &str = "/health";
+
+/// A health check: the [`HEALTH`] selector from the loopback address.
+fn is_probe(selector: &str, peer: IpAddr) -> bool {
+    selector == HEALTH && peer.to_canonical().is_loopback()
 }
 
 impl Config {
@@ -133,8 +148,10 @@ async fn handle(mut stream: TcpStream, cfg: &Config, peer: std::net::SocketAddr)
         }
     };
     let shown = String::from_utf8_lossy(selector::selector(&line).unwrap_or(&line)).into_owned();
+    let probe = is_probe(&shown, peer.ip());
 
     let route = match line.len().le(&MAX_LINE).then(|| selector::selector(&line)) {
+        Some(Ok(_)) if probe => selector::route(b""),
         Some(Ok(sel)) => selector::route(sel),
         _ => Err(Reject::TooLong),
     };
@@ -150,6 +167,7 @@ async fn handle(mut stream: TcpStream, cfg: &Config, peer: std::net::SocketAddr)
             .map(|_| 0),
     };
     match result {
+        Ok(_) if probe && !cfg.log_probes => {}
         Ok(bytes) => eprintln!("{peer} {shown:?} {bytes}"),
         Err(e) => eprintln!("{peer} {shown:?} прервано: {e}"),
     }
@@ -227,4 +245,21 @@ async fn send_error(stream: &mut TcpStream, msg: &str, io_timeout: Duration) -> 
 
 fn timed_out() -> io::Error {
     io::Error::new(io::ErrorKind::TimedOut, "таймаут")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn health_only_from_loopback() {
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        assert!(is_probe(HEALTH, ip("127.0.0.1")));
+        assert!(is_probe(HEALTH, ip("::1")));
+        assert!(is_probe(HEALTH, ip("::ffff:127.0.0.1")));
+        assert!(!is_probe(HEALTH, ip("192.0.2.7")));
+        assert!(!is_probe(HEALTH, ip("10.0.0.1")));
+        assert!(!is_probe("/", ip("127.0.0.1")));
+        assert!(!is_probe("/health/", ip("127.0.0.1")));
+    }
 }

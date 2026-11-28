@@ -147,7 +147,13 @@ GitHub Actions (`.github/workflows/`):
   turned off. The visitor's address (`X-Real-IP`, `X-Forwarded-For`) is believed only from
   trusted proxies (`TRUSTED_PROXIES`, in the chart `web.trustedProxies`, default
   `private_ranges`) and goes first in the access log line. The log is in the Combined Log
-  Format (as Apache and nginx write it); Kubernetes probes (`kube-probe/…`) are not logged.
+  Format (as Apache and nginx write it).
+- Health checks have their own endpoints, reachable only from Kubernetes: Caddy answers
+  `GET /health` on port 8081, which is in neither the Service nor the Ingress (200 once the
+  site is built, 503 before); gopherd answers the `/health` selector (with the root menu)
+  only from the pod's loopback address, where its exec probes come from, and for anyone else
+  it's a missing path. The checks are not logged; `web.logProbes` and `gopher.logProbes`
+  in the chart turn that on.
 - Everything taken from tags and file names is escaped in HTML and cleaned of tabs
   and line breaks in Gopher menus.
 - No `unsafe` code; `cargo audit` and `cargo deny` run before every commit.

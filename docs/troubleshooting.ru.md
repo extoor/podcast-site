@@ -139,7 +139,11 @@ curl -sI https://<домен>/
 curl -sI -r 0-99 https://<домен>/media/<файл>.mp3
 curl -sI https://<домен>/playlists/all.m3u8
 kubectl -n podcasts logs deploy/podcast-site-web | tail -5
+kubectl -n podcasts exec deploy/podcast-site-web -- wget -qO- http://127.0.0.1:8081/health
 ```
+
+Последняя — проверка готовности: `ok`, когда сайт собран, до того — ошибка (503). Порт 8081
+внутренний, его нет в Service.
 
 - Сертификат не выпускается — почти всегда DNS или порт 80 не доходит до Traefik (HTTP-01).
 - На Range-запрос должен прийти `206 Partial Content` (иначе в плеерах не работает перемотка),
@@ -150,11 +154,11 @@ kubectl -n podcasts logs deploy/podcast-site-web | tail -5
 
 ## Gopher
 
-**1. Сервер жив** (изнутри пода и на его собственном адресе):
+**1. Сервер жив** (та же проверка, что у проб; работает только изнутри пода, с любого
+другого адреса `/health` — несуществующий путь):
 
 ```sh
 kubectl -n podcasts exec deploy/podcast-site-gopherd -- /usr/local/bin/gopherd --check 127.0.0.1:70
-kubectl -n podcasts exec deploy/podcast-site-gopherd -- /usr/local/bin/gopherd --check <адрес-пода>:70
 kubectl -n podcasts logs -f deploy/podcast-site-gopherd
 ```
 

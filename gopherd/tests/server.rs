@@ -55,6 +55,7 @@ async fn start(name: &str, max_conns: usize) -> Fixture {
         max_conns,
         read_timeout: Duration::from_millis(300),
         io_timeout: Duration::from_secs(2),
+        log_probes: false,
     }
     .canonicalize()
     .unwrap();
@@ -84,6 +85,15 @@ async fn get(f: &Fixture, request: &[u8]) -> String {
 
 const NOT_FOUND: &str = "3Не найдено\t\terror.host\t1\r\n.\r\n";
 const BAD: &str = "3Неверный запрос\t\terror.host\t1\r\n.\r\n";
+
+#[tokio::test]
+async fn health_selector_is_the_root_menu() {
+    let f = start("health", 8).await;
+    assert_eq!(get(&f, b"/health\r\n").await, get(&f, b"\r\n").await);
+    assert!(get(&f, b"/health\r\n").await.starts_with("iroot"));
+    // only the exact selector: below it is an ordinary (missing) path
+    assert_eq!(get(&f, b"/health/x\r\n").await, NOT_FOUND);
+}
 
 #[tokio::test]
 async fn serves_menus_playlists_media() {

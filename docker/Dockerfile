@@ -103,7 +103,7 @@ RUN caddy version \
  && caddy list-modules | grep -qx caddy.logging.encoders.transform
 COPY caddy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build --chown=65532:65532 /out/site /site
-ENV SITE_ADDRESS=:8080 BUILD_DIR=/site MEDIA_DIR=/media \
+ENV SITE_ADDRESS=:8080 HEALTH_ADDRESS=:8081 BUILD_DIR=/site MEDIA_DIR=/media \
     XDG_DATA_HOME=/tmp/caddy-data XDG_CONFIG_HOME=/tmp/caddy-config
 USER 65532:65532
 EXPOSE 8080

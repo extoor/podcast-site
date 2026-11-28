@@ -26,19 +26,24 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            # health checks only: not in the Service, so only the kubelet reaches it
+            - name: health
+              containerPort: 8081
           env:
             - name: TRUSTED_PROXIES
               value: {{ join " " .Values.web.trustedProxies | quote }}
+            - name: LOG_PROBES
+              value: {{ .Values.web.logProbes | toString | quote }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources:
             {{- toYaml .Values.web.resources | nindent 12 }}
+          # alive = listening; ready = the site is built (/health is 503 until then)
           readinessProbe:
-            httpGet: { path: /robots.txt, port: http }
+            httpGet: { path: /health, port: health }
             periodSeconds: 10
-          # alive = listening; ready = the site is built (robots.txt is part of it)
           livenessProbe:
-            tcpSocket: { port: http }
+            tcpSocket: { port: health }
             periodSeconds: 30
           volumeMounts:
             {{- include "ps.mounts" (list . "ro") | nindent 12 }}

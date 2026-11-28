@@ -29,19 +29,40 @@
 	}
 }
 
-{$SITE_ADDRESS::8080} {
-	# Access log to stderr (the container log) in the Apache/nginx Combined Log Format;
-	# the address is client_ip, the visitor's own behind a trusted proxy. Needs the
-	# transform-encoder plugin (docker/Dockerfile builds Caddy with it).
+# Access log to stderr (the container log) in the Apache/nginx Combined Log Format; the
+# address is client_ip, the visitor's own behind a trusted proxy. Needs the
+# transform-encoder plugin (docker/Dockerfile builds Caddy with it).
+(access_log) {
 	log {
 		output stderr
 		format transform `{request>client_ip:request>remote_ip} - {user_id} [{ts}] "{request>method} {request>uri} {request>proto}" {status} {size} "{request>headers>Referer>[0]}" "{request>headers>User-Agent>[0]}"` {
 			time_format "02/Jan/2006:15:04:05 -0700"
 		}
 	}
-	# Kubernetes probes (kube-probe/<version>) every few seconds are not visits.
-	@probe header User-Agent kube-probe/*
-	log_skip @probe
+}
+
+# Health checks on their own port (HEALTH_ADDRESS): GET /health is 200 once the site is
+# built, 503 before. Not public: the Kubernetes Service and the Ingress only carry the
+# site's port, so only the kubelet reaches this one, at the pod's address. Logged only
+# with LOG_PROBES=true (the chart's web.logProbes).
+{$HEALTH_ADDRESS::8081} {
+	import access_log
+	@quiet expression `'{$LOG_PROBES:false}' != 'true'`
+	log_skip @quiet
+
+	@built file {
+		root {$BUILD_DIR:build}/www
+		try_files /robots.txt
+	}
+	handle /health {
+		respond @built "ok" 200
+		respond "the site is not built yet" 503
+	}
+	respond 404
+}
+
+{$SITE_ADDRESS::8080} {
+	import access_log
 
 	header {
 		X-Content-Type-Options nosniff
