@@ -9,8 +9,11 @@
   HTTPS через middleware `redirect-scheme`; у `websecure` middleware нет) и базовый адрес
   в плейлистах;
 - `generator` — CronJob (`generator.schedule`) и Job после каждой установки/обновления;
-  собранный сайт лежит на PVC (`site.storageClass`, по умолчанию `openebs-hostpath`, поэтому
-  три пода на одной ноде);
+  собранный сайт лежит на PVC ReadWriteOnce (`site.storageClass`, по умолчанию
+  `openebs-hostpath`), поэтому чарт держит все поды релиза на одной ноде (`podAffinity`).
+  С локальным классом сайт лежит, пока лежит эта нода; с реплицируемым (OpenEBS Mayastor,
+  например `mayastor-thin-r3`, Ceph RBD) поды вместе переезжают на другую. Gopher'у на этой
+  ноде нужен его сетевой интерфейс — ограничьте ноды через `nodeSelector`;
 - аудио — PV rclone CSI-драйвера только на чтение
   ([veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone),
   `crypt:music/Podcasts`); его конфигурация (ключ `configData`, весь `rclone.conf`) —

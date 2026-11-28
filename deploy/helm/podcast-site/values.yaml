@@ -84,7 +84,11 @@ generator:
 
 # --- storage ---------------------------------------------------------------------------
 # The built site: written by the generator, read by gopherd and Caddy. ReadWriteOnce is
-# "one node": with a node-local class (openebs-hostpath) all three pods land on that node.
+# "one node": the chart keeps all pods of the release on one node (podAffinity). With a
+# node-local class (openebs-hostpath) that node is fixed, and the site is down while it
+# is; with a replicated class (Mayastor, e.g. mayastor-thin-r3, or Ceph RBD) the pods
+# move to another node together. Gopher can only run where its network interface
+# (gopher.network.master) exists: limit the nodes with nodeSelector below.
 site:
   storageClass: openebs-hostpath
   size: 1Gi

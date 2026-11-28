@@ -9,8 +9,11 @@ The Helm chart `deploy/helm/podcast-site` deploys everything:
   through the `redirect-scheme` middleware; `websecure` has none) and the playlists' base
   URL all come from it;
 - `generator` is a CronJob (`generator.schedule`) plus a Job after every install/upgrade;
-  the built site lives on a PVC (`site.storageClass`, `openebs-hostpath` by default, so the
-  three pods share one node);
+  the built site lives on a ReadWriteOnce PVC (`site.storageClass`, `openebs-hostpath` by
+  default), so the chart keeps every pod of the release on one node (`podAffinity`). With a
+  node-local class the site is down while that node is; with a replicated one (OpenEBS
+  Mayastor such as `mayastor-thin-r3`, Ceph RBD) the pods move to another node together. Gopher
+  needs its network interface on that node: limit the nodes with `nodeSelector`;
 - the audio is a read-only PV of the rclone CSI driver
   ([veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone),
   `crypt:music/Podcasts`); its configuration (key `configData`, the whole `rclone.conf`) is
