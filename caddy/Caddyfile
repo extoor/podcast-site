@@ -11,6 +11,15 @@
 	# No admin API: the config is static, nothing should be able to change it at runtime.
 	admin off
 
+	# Caddy's own messages (start, config, errors) as plain text lines, not JSON, and
+	# without colour codes (they'd show up as garbage in kubectl logs); the access log has
+	# its own format below.
+	log {
+		format console {
+			level_format upper
+		}
+	}
+
 	# The visitor's address behind a proxy (Traefik): taken from these headers, but only
 	# when the request comes from a trusted proxy (TRUSTED_PROXIES: CIDRs or
 	# private_ranges, separated by spaces). The access log then has client_ip.
@@ -21,10 +30,18 @@
 }
 
 {$SITE_ADDRESS::8080} {
-	# Access log to stderr (one JSON line per request): the container log.
+	# Access log to stderr (the container log) in the Apache/nginx Combined Log Format;
+	# the address is client_ip, the visitor's own behind a trusted proxy. Needs the
+	# transform-encoder plugin (docker/Dockerfile builds Caddy with it).
 	log {
 		output stderr
+		format transform `{request>client_ip:request>remote_ip} - {user_id} [{ts}] "{request>method} {request>uri} {request>proto}" {status} {size} "{request>headers>Referer>[0]}" "{request>headers>User-Agent>[0]}"` {
+			time_format "02/Jan/2006:15:04:05 -0700"
+		}
 	}
+	# Kubernetes probes (kube-probe/<version>) every few seconds are not visits.
+	@probe header User-Agent kube-probe/*
+	log_skip @probe
 
 	header {
 		X-Content-Type-Options nosniff

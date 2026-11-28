@@ -145,7 +145,7 @@ kubectl -n podcasts logs deploy/podcast-site-web | tail -5
 - The certificate isn't issued: almost always DNS, or port 80 doesn't reach Traefik (HTTP-01).
 - A Range request must get `206 Partial Content` (otherwise seeking in players breaks); the
   playlist must have `Content-Disposition: attachment`.
-- `client_ip` in the Caddy log is the visitor's address. If it shows Traefik or the router
+- The first field of a Caddy log line is the visitor's address. If it shows Traefik or the router
   instead: Traefik's pods aren't in `web.trustedProxies`, or Traefik itself doesn't see the
   address (`externalTrafficPolicy: Local`, no SNAT in front of it).
 

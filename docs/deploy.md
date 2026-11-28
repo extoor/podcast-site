@@ -95,7 +95,7 @@ kubectl -n podcasts logs deploy/podcast-site-web | tail -3
   always replace (it did not with k3s/flannel). The cluster network stays on `eth0`. SNAT on the
   router works too. To look inside the distroless pod:
   `kubectl debug -it <pod> --image=nicolaka/netshoot --profile=netadmin -- ip route`.
-- The visitor's address reaches the access log (`client_ip`) only if Traefik sees it
+- The visitor's address reaches the access log (the first field) only if Traefik sees it
   (`externalTrafficPolicy: Local` on its Service, no SNAT before it) and its pods are in
   `web.trustedProxies`.
 

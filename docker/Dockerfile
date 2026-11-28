@@ -4,6 +4,7 @@
 #   generator  sitegen --scan: scans the media library and builds the site (a CronJob)
 #   gopherd    the Gopher server
 #   web        Caddy with caddy/Caddyfile: pages, playlists, audio
+#   caddy      only Caddy with the log plugin (/out/caddy): CI validates the Caddyfile with it
 #
 # Build and push (from the repository root):
 #   docker buildx build --pull --platform linux/amd64,linux/arm64 -f docker/Dockerfile \
@@ -17,8 +18,21 @@
 # pure Rust, so no C toolchain and no emulation are needed.
 
 # Base images are written out in FROM lines (not ARGs) so Dependabot can update them.
-# Caddy is the floating caddy:2-alpine: the newest 2.x at build time; CI builds with
-# --pull and rebuilds weekly, so the web image always carries the current Caddy.
+# Caddy is the floating caddy:2-alpine / caddy:2-builder-alpine: the newest 2.x at build
+# time; CI builds with --pull and rebuilds weekly, so the web image always carries the
+# current Caddy.
+
+# --- caddy: Caddy with the transform-encoder log plugin --------------------------------
+# The access log is in the Combined Log Format, which only this plugin (from the Caddy
+# project) can write. xcaddy builds the builder image's Caddy version; Go cross-compiles,
+# so this stage runs on the build machine. The plugin has no releases: pinned to a commit.
+FROM --platform=$BUILDPLATFORM docker.io/library/caddy:2-builder-alpine AS caddy
+ARG TARGETOS TARGETARCH
+ARG TRANSFORM_ENCODER=github.com/caddyserver/transform-encoder@ba4124974830222da7f12a091cf11ddf4d49363f
+# XCADDY_SETCAP=0: the builder image would give the binary cap_net_bind_service, and a
+# binary with file capabilities can't start once every capability is dropped
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH CGO_ENABLED=0 XCADDY_SETCAP=0 \
+    xcaddy build --output /out/caddy --with "$TRANSFORM_ENCODER"
 
 # --- build -----------------------------------------------------------------------------
 FROM --platform=$BUILDPLATFORM docker.io/library/rust:1.100.0-slim-bookworm AS build
@@ -79,14 +93,14 @@ HEALTHCHECK --interval=30s --timeout=5s \
 
 # --- web: Deployment -------------------------------------------------------------------
 # Caddy on 8080 (plain HTTP: TLS is the Ingress's job), BUILD_DIR=/site, MEDIA_DIR=/media.
-# The official binary carries the cap_net_bind_service file capability; with all
-# capabilities dropped (Pod Security "restricted") such a binary cannot even start, and
-# we do not need low ports, so the capability is removed.
+# The official binary is replaced with ours (with the log plugin). It has no file
+# capabilities, unlike the official one with cap_net_bind_service (see XCADDY_SETCAP
+# above): with all capabilities dropped (Pod Security "restricted") such a binary cannot
+# even start, and we do not need low ports.
 FROM docker.io/library/caddy:2-alpine AS web
-RUN apk add --no-cache libcap \
- && setcap -r /usr/bin/caddy \
- && apk del libcap \
- && caddy version
+COPY --from=caddy /out/caddy /usr/bin/caddy
+RUN caddy version \
+ && caddy list-modules | grep -qx caddy.logging.encoders.transform
 COPY caddy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build --chown=65532:65532 /out/site /site
 ENV SITE_ADDRESS=:8080 BUILD_DIR=/site MEDIA_DIR=/media \
