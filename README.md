@@ -145,13 +145,13 @@ which is in `.gitignore`. For example `deploy/local/values.yaml`:
 ```yaml
 domain: podcasts.example.org
 gopher:
-  network:                 # the pod's own address in the DMZ (Multus macvlan)
+  network:                 # the pod's own address (Multus macvlan)
     enabled: true
     master: eth0.100       # the node interface (here VLAN 100 on eth0)
     address: 192.0.2.41/24
     gateway: 192.0.2.1
 web:
-  trustedProxies: [10.42.0.0/16]   # pod CIDR of Traefik; default private_ranges
+  trustedProxies: [<traefik-pod-cidr>]   # default private_ranges
 ```
 
 All settings with comments are in `deploy/helm/podcast-site/values.yaml`.
@@ -225,6 +225,8 @@ kubectl apply -f deploy/local/argocd-application.yaml
 your own patches.
 
 ### When something goes wrong
+
+A longer checklist (Helm, generator, rclone, web, Gopher network): [docs/troubleshooting.md](docs/troubleshooting.md).
 
 | Symptom | Cause and fix |
 |---|---|

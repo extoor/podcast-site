@@ -7,4 +7,4 @@ gopher:
   host: ""                          # default: domain
   podAnnotations: {}
   #  k8s.v1.cni.cncf.io/networks: |
-  #    [{"name": "macvlan-dmz", "namespace": "default", "ips": ["<gopher-ip>/24"]}]
+  #    [{"name": "<nad>", "namespace": "<ns>", "ips": ["<gopher-ip>/24"]}]

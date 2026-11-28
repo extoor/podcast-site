@@ -146,6 +146,10 @@
   удаление из истории не помогает, если коммит уже был запушен.
 - Перед коммитом смотреть `git diff --cached` на предмет секретов; в примерах — заглушки
   (`<token>`, `example.org`).
+- Устройство своей инфраструктуры тоже не описываем: никаких реальных IP-адресов и подсетей,
+  имён хостов, VLAN, интерфейсов, NAD, названий сетевых зон (DMZ и т. п.), имён S3-remote/бакетов —
+  ни в документации, ни в чарте, ни в комментариях. Только заглушки (`<pod-address>`, `192.0.2.x`,
+  `<nad>`) и нейтральные формулировки; настоящие значения — в `deploy/local/`.
 
 ## Соглашения
 
@@ -207,8 +211,8 @@
          middleware redirect-scheme из ns traefik; `websecure` — без middleware)
          + cert-manager Certificate (ClusterIssuer
          zerossl-production), Caddy внутри на 8080;
-       - Gopher — Multus macvlan со своим IP в DMZ: `gopher.network` (master — VLAN-интерфейс ноды,
-         интерфейс `dmz`) — чарт создаёт NetworkAttachmentDefinition и аннотацию пода; через
+       - Gopher — Multus macvlan со своим IP: `gopher.network` (master — интерфейс ноды,
+         интерфейс `net1`) — чарт создаёт NetworkAttachmentDefinition и аннотацию пода; через
          шлюз — маршруты `0.0.0.0/1` и `128.0.0.0/1`: `default-route` Multus с k3s/flannel не
          заменил маршрут по умолчанию на `eth0`, и ответы клиентам уходили в сеть кластера
          (проверено в кластере); gopherd слушает 70 без root через sysctl
@@ -217,6 +221,8 @@
        - домен — `fm.tuhu.io` (веб и Gopher). Реальные значения (IP пода и т. п.) — не в git:
          `deploy/local/` в `.gitignore`;
        - Pod Security «restricted»: runAsNonRoot, readOnlyRootFilesystem, drop ALL, seccomp.
+       - что проверять, если не работает (Helm, генератор, rclone, веб, сеть Gopher), — шпаргалка
+         `docs/troubleshooting.md` / `docs/troubleshooting.ru.md` (тоже двуязычная, правим обе).
 
 ## Открытые вопросы
 

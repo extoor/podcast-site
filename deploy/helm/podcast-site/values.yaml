@@ -43,7 +43,7 @@ ingressRoute:
   websecure:
     entryPoints: [websecure]
 
-# --- gopherd: own IP in the DMZ (Multus macvlan) ---------------------------------------
+# --- gopherd: own IP (Multus macvlan) ---------------------------------------------------
 gopher:
   enabled: true
   # The name in every Gopher menu line; default: domain (the same name for the web and
@@ -60,12 +60,12 @@ gopher:
     enabled: false
     master: ""          # the node interface, e.g. eth0.100 (a VLAN)
     mode: bridge
-    interface: dmz      # the interface name in the pod
+    interface: net1     # the interface name in the pod
     address: ""         # e.g. 192.0.2.41/24
     gateway: ""         # e.g. 192.0.2.1; empty: no routes, only the local subnet
   # More annotations, or your own Multus network instead of gopher.network:
   #   k8s.v1.cni.cncf.io/networks: |
-  #     [{"name": "<nad>", "namespace": "<ns>", "interface": "dmz", "ips": ["<ip>/24"]}]
+  #     [{"name": "<nad>", "namespace": "<ns>", "interface": "net1", "ips": ["<ip>/24"]}]
   podAnnotations: {}
   resources:
     requests: { cpu: 10m, memory: 16Mi }

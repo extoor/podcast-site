@@ -144,13 +144,13 @@ musl-файлы (линкует `rust-lld` из тулчейна Rust; все з
 ```yaml
 domain: podcasts.example.org
 gopher:
-  network:                 # the pod's own address in the DMZ (Multus macvlan)
+  network:                 # the pod's own address (Multus macvlan)
     enabled: true
     master: eth0.100       # интерфейс ноды (здесь VLAN 100 на eth0)
     address: 192.0.2.41/24
     gateway: 192.0.2.1
 web:
-  trustedProxies: [10.42.0.0/16]   # pod CIDR Traefik; по умолчанию private_ranges
+  trustedProxies: [<traefik-pod-cidr>]   # по умолчанию private_ranges
 ```
 
 Все параметры с комментариями — в `deploy/helm/podcast-site/values.yaml`.
@@ -223,6 +223,8 @@ kubectl apply -f deploy/local/argocd-application.yaml
 патчей.
 
 ### Если что-то не работает
+
+Подробная шпаргалка (Helm, генератор, rclone, веб, сеть Gopher): [docs/troubleshooting.ru.md](docs/troubleshooting.ru.md).
 
 | Признак | Причина и что делать |
 |---|---|

@@ -1,5 +1,5 @@
 {{- if .Values.gopher.enabled }}
-# gopherd on its own DMZ address (Multus annotations) and port 70 without root: the pod
+# gopherd on its own address (Multus annotations) and port 70 without root: the pod
 # sysctl net.ipv4.ip_unprivileged_port_start=0 (namespaced, allowed as a safe sysctl).
 apiVersion: apps/v1
 kind: Deployment
