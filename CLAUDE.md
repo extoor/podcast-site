@@ -214,7 +214,11 @@
          `templates/checks.yaml` (lookup) при install/upgrade останавливает установку без Secret
          или без `configData` (в template/lint/ArgoCD проверка пропускается);
        - собранный сайт — PVC RWO, `site.storageClass` (по умолчанию `openebs-hostpath`) —
-         одна нода: generator, gopherd и web на ней;
+         одна нода: generator, gopherd и web на ней. С RWO чарт сам добавляет всем подам
+         `podAffinity` друг к другу по hostname (иначе на реплицируемом классе — Mayastor, Ceph
+         RBD — поды разъедутся и получат Multi-Attach); с Mayastor группа при падении ноды
+         переезжает целиком; ноды для группы ограничивает `nodeSelector` (Gopher'у нужен
+         интерфейс `gopher.network.master`);
        - веб — Service + Traefik IngressRoute (`web` — порт 80, только
          middleware redirect-scheme из ns traefik; `websecure` — без middleware)
          + cert-manager Certificate (ClusterIssuer

@@ -72,7 +72,23 @@ nodeSelector:
 tolerations:
   {{- toYaml . | nindent 2 }}
 {{- end }}
-{{- with .Values.affinity }}
+{{- /*
+A ReadWriteOnce site volume is attached to one node at a time, so every pod of the
+release must run on the same node. A node-local class (openebs-hostpath) pins them by
+itself; a replicated one (Mayastor, Ceph RBD) doesn't, so the pods follow each other: the
+first one picks the node, the rest join it, and after a node failure the group moves
+together. Added to .Values.affinity.
+*/}}
+{{- $aff := deepCopy (.Values.affinity | default dict) }}
+{{- if eq .Values.site.accessMode "ReadWriteOnce" }}
+{{- $pa := get $aff "podAffinity" | default dict }}
+{{- $req := get $pa "requiredDuringSchedulingIgnoredDuringExecution" | default list }}
+{{- $sel := dict "app.kubernetes.io/name" .Chart.Name "app.kubernetes.io/instance" .Release.Name }}
+{{- $term := dict "labelSelector" (dict "matchLabels" $sel) "topologyKey" "kubernetes.io/hostname" }}
+{{- $_ := set $pa "requiredDuringSchedulingIgnoredDuringExecution" (append $req $term) }}
+{{- $_ := set $aff "podAffinity" $pa }}
+{{- end }}
+{{- with $aff }}
 affinity:
   {{- toYaml . | nindent 2 }}
 {{- end }}
