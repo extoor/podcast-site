@@ -204,6 +204,31 @@ argocd app get podcast-site --show-params
 `deploy/local/argocd-application.yaml` их сбрасывает, и Image Updater ставит их заново за
 пару минут.
 
+## Бета-окружение
+
+Новые возможности сначала проверяются на бета-сайте, который разворачивается так же, как
+продакшен: постоянная ветка `beta` (`main` плюс проверяемые фичи, влитые в неё) → CI на
+каждый push в неё собирает образы с тегом `beta` → приложение Argo CD `podcast-site-beta`
+ставит чарт из этой ветки в неймспейс `podcasts-beta`, а Image Updater выкатывает каждую
+новую сборку `beta` (вторая запись в `deploy/argocd/image-updater.yaml`). В бете нет Gopher
+(`gopher.enabled: false`; страницы ссылаются на Gopher продакшена), у неё свой домен,
+сертификат и том сайта.
+
+`deploy/argocd/application-beta.yaml` — пример; копия с настоящим доменом — в
+`deploy/local/`. Бете нужны свой Secret для rclone, DNS-запись её домена (на тот же Traefik,
+что у продакшена) и свой `media.csi.volumeHandle`:
+
+```sh
+kubectl create namespace podcasts-beta
+kubectl -n podcasts-beta create secret generic podcast-site-rclone --from-file=configData=rclone.conf
+kubectl apply -f deploy/local/argocd-application-beta.yaml
+kubectl apply -n argocd -f deploy/argocd/image-updater.yaml
+```
+
+Проверить фичу: влить её ветку в `beta` и запушить (в бету коммиты идут без pull request;
+CI проверяет каждый push). Когда всё хорошо, ветка фичи идёт в `main` через pull request,
+как обычно; `beta` догоняет `main` слиянием `main` в неё.
+
 ## Если что-то не работает
 
 См. [troubleshooting.ru.md](troubleshooting.ru.md): Helm, генератор, rclone, веб и сеть Gopher

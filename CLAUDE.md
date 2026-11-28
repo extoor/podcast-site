@@ -218,6 +218,11 @@
 7. [x] Kubernetes (radxa — только разработка, работает всё в кластере). Helm-чарт
        `deploy/helm/podcast-site` (проверка в CI — job `helm chart`: lint + kubeconform);
        развёрнут 27.11.2026: веб по HTTPS, Gopher снаружи, аудио из S3 через rclone. Решено:
+       - бета-окружение: постоянная ветка `beta` (main + проверяемые фичи; коммиты без PR, CI
+         проверяет push), образы с тегом `beta` (images.yml), приложение `podcast-site-beta`
+         (`deploy/argocd/application-beta.yaml`, неймспейс `podcasts-beta`, без Gopher, свой
+         `media.csi.volumeHandle`), вторая запись в `image-updater.yaml`; домен и прочие настоящие
+         значения — в `deploy/local/`;
        - новые образы: сам ArgoCD их не видит (тег `latest`, манифесты те же) — Argo CD Image
          Updater v1.x (`deploy/argocd/image-updater.yaml`, ресурс `ImageUpdater`, стратегия
          `digest`) ставит параметр `image.tags.<образ>` = `latest@sha256:…` через API ArgoCD,

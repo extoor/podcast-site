@@ -1,0 +1,37 @@
+# The beta environment: the same chart from the `beta` branch, images tagged `beta` (CI
+# builds them from every push to beta; Image Updater rolls them out), its own namespace
+# and domain, no Gopher. A copy with the real values goes to deploy/local/.
+#   kubectl -n podcasts-beta create secret generic podcast-site-rclone --from-file=configData=rclone.conf
+#   kubectl apply -f deploy/local/argocd-application-beta.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: podcast-site-beta
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/extoor/podcast-site.git
+    targetRevision: beta
+    path: deploy/helm/podcast-site
+    helm:
+      releaseName: podcast-site
+      valuesObject:
+        domain: beta.podcasts.example.org
+        image:
+          tag: beta
+        gopher:
+          enabled: false
+          # the pages' Gopher link: production's server (beta has none)
+          host: podcasts.example.org
+        media:
+          csi:
+            volumeHandle: podcast-site-media-beta   # unique per volume of the driver
+        site:
+          storageClass: openebs-hostpath
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: podcasts-beta
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true]
