@@ -161,7 +161,8 @@ argocd app history podcast-site
 ```
 
 - ArgoCD notices a new commit in `main` within about 3 minutes; `--refresh` makes it look now.
-- The Helm hook `generator-init` runs as a PostSync hook: every sync rebuilds the site.
+- The `generator-init` Job runs as a Sync hook (not PostSync, which would wait for pods that
+  only get healthy once the site is built): every sync rebuilds the site.
 - The Secret check (`templates/checks.yaml`) needs the live cluster and is skipped in ArgoCD.
 - The pods roll by themselves when the media mount changes (`checksum/storage`), not when the
   catalog is rebuilt.

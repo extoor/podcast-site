@@ -24,6 +24,10 @@ spec:
 {{- if .Values.generator.runOnInstall }}
 ---
 # Build once right after install and upgrade, so the servers have a site at once.
+# ArgoCD would map the Helm hook to PostSync, which waits for every resource to be
+# healthy, and web and gopherd only get healthy once the site is built: on an empty
+# volume the sync would never finish. Its own annotations (they win over Helm's) make it
+# a Sync hook that runs along with the other resources.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -34,6 +38,8 @@ metadata:
   annotations:
     helm.sh/hook: post-install,post-upgrade
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
 spec:
   backoffLimit: 2
   activeDeadlineSeconds: 1800

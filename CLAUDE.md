@@ -218,6 +218,9 @@
          rclone ничего не пишет, mountOptions это не перебивают);
          у подов web и gopherd аннотация `checksum/storage` (хеш отрендеренного `storage.yaml`):
          опции монтирования меняются — поды перекатываются сами (Helm и ArgoCD);
+         Job `generator-init` — хук Helm post-install/upgrade и хук ArgoCD `Sync` (не PostSync:
+         тот ждёт здоровья подов, а они здоровы только с собранным сайтом — на пустом томе
+         синхронизация зависала);
          `templates/checks.yaml` (lookup) при install/upgrade останавливает установку без Secret
          или без `configData` (в template/lint/ArgoCD проверка пропускается);
        - собранный сайт — PVC RWO, `site.storageClass` (по умолчанию `openebs-hostpath`) —
