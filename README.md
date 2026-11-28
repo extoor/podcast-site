@@ -249,7 +249,8 @@ GitHub Actions (`.github/workflows/`):
   only build them); a weekly run rebuilds them with the newest Caddy and base images.
   The commit goes in as `GIT_COMMIT` and is the site's version: `rev <short hash>` at the
   bottom of every page (a link to the commit) and in the Gopher root menu. A local build
-  takes it from git (`-dirty` with uncommitted changes).
+  takes it from git (`-dirty` with uncommitted changes). Under it is the time the catalog
+  was built (`DD.MM.YYYY HH:MM`), in the visitor's own time zone (UTC without JS).
 - Dependabot keeps the actions, crates and base images up to date.
 
 ## Security

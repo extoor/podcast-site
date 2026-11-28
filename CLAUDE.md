@@ -102,7 +102,9 @@
 
 Версия сайта — короткий коммит, из которого собран `sitegen` (`sitegen/build.rs`: `GIT_COMMIT`
 из CI через build-arg образа, локально — `git`, `-dirty` при правках): `rev <хеш>` внизу
-страниц (ссылка на коммит на GitHub) и строка «Версия:» в корневом меню Gopher.
+страниц (ссылка на коммит на GitHub) и строка «Версия:» в корневом меню Gopher. Под `rev` —
+«каталог собран», строкой ниже — `ДД.ММ.ГГГГ ЧЧ:ММ` (`generated_at`, подпись — `built` в `LANGS`): в HTML — UTC
+в `<time datetime>`, скрипт показывает время в часовом поясе браузера, без JS — `… UTC`.
 
 Сайт не для поисковиков: `sitegen` кладёт `robots.txt` (`Disallow: /`) в корень веба и Gopher,
 в каждой странице — `<meta name="robots" content="noindex, nofollow, noarchive, ...">`, Caddy
