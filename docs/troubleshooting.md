@@ -44,7 +44,7 @@ kubectl -n podcasts logs -f job/podcast-site-build-now
 
 The log ends with `Готово: … страниц HTML …`. The version of the built site is at the bottom of
 every page (`rev <commit>`) and in the Gopher root menu (`Версия:`): an old commit there means
-the image wasn't updated (`rollout restart` and a rebuild, see "Updating" in the README).
+the image wasn't updated (`rollout restart` and a rebuild, see "Updates" in [deploy.md](deploy.md)).
 
 ## rclone (audio)
 

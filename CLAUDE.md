@@ -101,7 +101,7 @@
    открывают их встроенным HLS-плеером вместо скачивания (на страницах — атрибут `download`).
 
 Версия сайта — короткий коммит, из которого собран `sitegen` (`sitegen/build.rs`: `GIT_COMMIT`
-из CI через build-arg образа, локально — `git`, `-dirty` при правках): `rev <хеш>` внизу
+из CI через build-arg образа — последний коммит, менявший исходники образов, не `github.sha`, локально — `git`, `-dirty` при правках): `rev <хеш>` внизу
 страниц (ссылка на коммит на GitHub) и строка «Версия:» в корневом меню Gopher. Под `rev` —
 «каталог собран», строкой ниже — `ДД.ММ.ГГГГ ЧЧ:ММ` (`generated_at`, подпись — `built` в `LANGS`): в HTML — UTC
 в `<time datetime>`, скрипт показывает время в часовом поясе браузера, без JS — `… UTC`.
@@ -181,7 +181,9 @@
    CI — GitHub Actions (`.github/workflows/`): `ci.yml` — fmt, clippy, тесты, cargo audit/deny,
    JS-модули, Caddyfile, gitleaks; `images.yml` — образы amd64+arm64 в GHCR
    (`ghcr.io/<owner>/<repo>/{generator,gopherd,web}`) из main и тегов `v*`, PR — только сборка,
-   еженедельная пересборка (свежий Caddy). Dependabot — actions, cargo, базовые образы.
+   еженедельная пересборка (свежий Caddy); push в main собирает образы, только если менялись
+   их исходники (`paths` без `*.md`: документация, чарт, `deploy/` приложение не перезапускают;
+   для PR фильтра нет — проверки обязательные). Dependabot — actions, cargo, базовые образы.
    Docker в dev-контейнере — для локальной проверки сборки.
 5. [x] HTTPS через Caddy с Range-запросами: `caddy/Caddyfile` готов и проверен в dev (Range,
        attachment для плейлистов, CSP); в кластере TLS делают Traefik и cert-manager.
@@ -227,8 +229,9 @@
        - домен — `fm.tuhu.io` (веб и Gopher). Реальные значения (IP пода и т. п.) — не в git:
          `deploy/local/` в `.gitignore`;
        - Pod Security «restricted»: runAsNonRoot, readOnlyRootFilesystem, drop ALL, seccomp.
-       - что проверять, если не работает (Helm, генератор, rclone, веб, сеть Gopher), — шпаргалка
-         `docs/troubleshooting.md` / `docs/troubleshooting.ru.md` (тоже двуязычная, правим обе).
+       - инструкция по деплою (Helm, ArgoCD и его CLI, сеть, обновление) — `docs/deploy.md` /
+         `docs/deploy.ru.md`, в README — только краткий абзац со ссылкой; что проверять, если не
+         работает, — `docs/troubleshooting.md` / `.ru.md` (обе пары двуязычные, правим обе версии).
 
 ## Открытые вопросы
 

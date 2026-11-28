@@ -105,137 +105,14 @@ is its health check.
 
 ## Kubernetes
 
-The Helm chart `deploy/helm/podcast-site` deploys everything:
+The Helm chart `deploy/helm/podcast-site` deploys everything: the generator (a CronJob), Caddy
+behind Traefik with a cert-manager certificate, gopherd on its own address (Multus) and the
+audio through the rclone CSI driver, all rootless under Pod Security "restricted". It installs
+with Helm or ArgoCD.
 
-- the domain is written once, `domain` (plus optional `extraDomains`); the cert-manager
-  `Certificate`, both Traefik `IngressRoute`s (`web`, port 80, redirects to HTTPS
-  through the `redirect-scheme` middleware; `websecure` has none) and the playlists' base
-  URL all come from it;
-- `generator` is a CronJob (`generator.schedule`) plus a Job after every install/upgrade;
-  the built site lives on a PVC (`site.storageClass`, `openebs-hostpath` by default, so the
-  three pods share one node);
-- the audio is a read-only PV of the rclone CSI driver
-  ([veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone),
-  `crypt:music/Podcasts`); its configuration (key `configData`, the whole `rclone.conf`) is
-  a Secret made outside the chart (`media.csi.nodePublishSecretRef`), or use your own
-  claim with `media.type: existingClaim`. `helm install`/`upgrade` stops if the Secret or its
-  `configData` key is missing. Nothing is cached on the node's disk: the chart pins
-  `vfs-cache-mode=off`, so rclone keeps only directory listings and read buffers in memory;
-- `gopherd` gets its own address through Multus (`gopher.network`) and listens on
-  port 70 without root (the pod sysctl `net.ipv4.ip_unprivileged_port_start=0`); menus
-  point to `gopher.host` (default: `domain`, the same name as the web);
-- every pod passes Pod Security "restricted"; `networkPolicy.enabled` forbids egress and lets
-  only Traefik reach the web pod.
-
-### What the cluster needs
-
-- Traefik with its CRDs (`traefik.io/v1alpha1`), entry points `web` and `websecure`, and the
-  `redirect-scheme` middleware in namespace `traefik` (`ingressRoute.*` in the values);
-- cert-manager and an issuer (`certificate.issuerRef`, default ClusterIssuer
-  `zerossl-production`);
-- the rclone CSI driver [veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone);
-- a StorageClass for the built site (`site.storageClass`, default `openebs-hostpath`);
-- for Gopher: Multus with the macvlan and static CNI plugins (the chart makes the
-  NetworkAttachmentDefinition), or `gopher.enabled: false`.
-
-### 1. Your values, outside git
-
-The repository is public: the real domain and internal addresses go to `deploy/local/`,
-which is in `.gitignore`. For example `deploy/local/values.yaml`:
-
-```yaml
-domain: podcasts.example.org
-gopher:
-  network:                 # the pod's own address (Multus macvlan)
-    enabled: true
-    master: eth0.100       # the node interface (here VLAN 100 on eth0)
-    address: 192.0.2.41/24
-    gateway: 192.0.2.1
-web:
-  trustedProxies: [<traefik-pod-cidr>]   # default private_ranges
-```
-
-All settings with comments are in `deploy/helm/podcast-site/values.yaml`.
-
-### 2. The rclone Secret
-
-The driver reads only the key `configData`: the whole `rclone.conf` with the `crypt`
-section and the remote under it (only these two, not your other remotes). If the
-configuration is password-protected, export an unencrypted copy with `rclone config show`.
-
-```sh
-kubectl create namespace podcasts
-kubectl -n podcasts create secret generic podcast-site-rclone --from-file=configData=rclone.conf
-```
-
-### 3. Install
-
-```sh
-helm upgrade --install podcast-site deploy/helm/podcast-site -n podcasts -f deploy/local/values.yaml
-kubectl -n podcasts get pods -w
-```
-
-Right after the install a Job builds the site (`podcast-site-generator-init`); the web and
-Gopher pods become ready when it is done. Check:
-
-```sh
-kubectl -n podcasts get pods,certificate,ingressroute
-kubectl -n podcasts exec deploy/podcast-site-gopherd -- /usr/local/bin/gopherd --check 127.0.0.1:70
-kubectl -n podcasts logs deploy/podcast-site-web | tail -3
-```
-
-### Network
-
-- DNS of `domain` points to the public address; ports 80 and 443 go to Traefik (the HTTP-01
-  check of cert-manager needs port 80).
-- Port 70 of the public address is forwarded to the Gopher pod's own address. Its answers must
-  leave through the same interface, or the connection never opens. With
-  `gopher.network.gateway` the chart routes `0.0.0.0/1` and `128.0.0.0/1` through it: more
-  specific than the pod's default route on `eth0`, which Multus' `default-route` does not
-  always replace (it did not with k3s/flannel). The cluster network stays on `eth0`. SNAT on the
-  router works too. To look inside the distroless pod:
-  `kubectl debug -it <pod> --image=nicolaka/netshoot --profile=netadmin -- ip route`.
-- The visitor's address reaches the access log (`client_ip`) only if Traefik sees it
-  (`externalTrafficPolicy: Local` on its Service, no SNAT before it) and its pods are in
-  `web.trustedProxies`.
-
-### Updates
-
-The images are `latest` with `pullPolicy: Always`, rebuilt from `main` and weekly. To take
-them and rebuild the site at once (otherwise it is rebuilt on `generator.schedule`):
-
-```sh
-helm upgrade --install podcast-site deploy/helm/podcast-site -n podcasts -f deploy/local/values.yaml
-kubectl -n podcasts rollout restart deploy/podcast-site-web deploy/podcast-site-gopherd
-kubectl -n podcasts create job --from=cronjob/podcast-site-generator podcast-site-build-now
-```
-
-### ArgoCD
-
-`deploy/argocd/application.yaml` is an example; keep your copy with the real values in
-`deploy/local/` and apply it with `kubectl apply -f`. Coming from a Helm install: delete only the
-Helm release record, ArgoCD takes over the running objects. Do not `helm uninstall`, it
-deletes the PVC with the built site.
-
-```sh
-kubectl -n podcasts delete secret -l owner=helm,name=podcast-site
-kubectl apply -f deploy/local/argocd-application.yaml
-```
-
-`deploy/kustomize/` is the same chart through kustomize (`kustomize build --enable-helm`) for
-your own patches.
-
-### When something goes wrong
-
-A longer checklist (Helm, generator, rclone, web, Gopher network): [docs/troubleshooting.md](docs/troubleshooting.md).
-
-| Symptom | Cause and fix |
-|---|---|
-| `FailedMount … either configData or remoteType must be provided` | The Secret has another key (`--from-file=rclone.conf`). Recreate it with `--from-file=configData=…`, then delete the pods. |
-| PVC `Pending`, `volume … already bound to a different claim` | The PV is `Released` after its PVC was deleted. `kubectl patch pv <pv> --type json -p '[{"op":"remove","path":"/spec/claimRef/uid"}]'` |
-| `/media` is empty | Wrong `media.csi.volumeAttributes.remotePath` or wrong crypt keys. Look with `rclone lsd crypt:<path>` using the same configuration. |
-| `/media`: `Permission denied` | The mount lacks `allow-other`/`uid`/`gid`; the chart adds them, check `media.csi.mountOptions` and `podSecurityContext`. |
-| The certificate is not issued | `kubectl -n podcasts describe certificate,challenge`: usually DNS or port 80 not reaching Traefik. |
+- Step by step (values outside git, the rclone Secret, install, network, updates, ArgoCD):
+  [docs/deploy.md](docs/deploy.md).
+- When something doesn't work: [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Continuous integration
 
@@ -248,7 +125,9 @@ GitHub Actions (`.github/workflows/`):
 - `images.yml`: the three images for amd64 + arm64, pushed to
   `ghcr.io/<owner>/<repo>/{generator,gopherd,web}` from `main` and `v*` tags (pull requests
   only build them); a weekly run rebuilds them with the newest Caddy and base images.
-  The commit goes in as `GIT_COMMIT` and is the site's version: `rev <short hash>` at the
+  A push to `main` that changes only docs, the chart or `deploy/` builds nothing, so the
+  running site is left alone. The last commit that changed the images' sources goes in as
+  `GIT_COMMIT` and is the site's version: `rev <short hash>` at the
   bottom of every page (a link to the commit) and in the Gopher root menu. A local build
   takes it from git (`-dirty` with uncommitted changes). Under it is the time the catalog
   was built (`DD.MM.YYYY HH:MM`), in the visitor's own time zone (UTC without JS).
