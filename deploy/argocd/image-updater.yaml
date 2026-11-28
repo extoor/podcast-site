@@ -1,0 +1,44 @@
+# Argo CD Image Updater (https://github.com/argoproj-labs/argocd-image-updater, v1.x):
+# follows the `latest` tag of the three images in GHCR and, on every new build, sets
+# the chart's image.tags.<image> parameter of the Application to latest@sha256:<digest>.
+# The manifests change, so Argo CD syncs: the pods roll onto the new images and the
+# generator-init hook rebuilds the site at once. Nothing is written to git (write-back
+# through the Argo CD API), so the protected main branch is not in the way.
+#
+# The images are public: no registry credentials. Install the controller (Helm chart
+# argo/argocd-image-updater) into the Argo CD namespace, then apply this next to the
+# Application (see docs/deploy.md):
+#   kubectl apply -n argocd -f deploy/argocd/image-updater.yaml
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: podcast-site
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: podcast-site          # the Application's name
+      images:
+        - alias: generator
+          imageName: ghcr.io/extoor/podcast-site/generator:latest
+          commonUpdateSettings:
+            updateStrategy: digest       # a new push of the mutable tag `latest`
+            platforms: [linux/amd64, linux/arm64]
+          manifestTargets:
+            helm:
+              tag: image.tags.generator  # only the tag: the registry stays in values
+        - alias: gopherd
+          imageName: ghcr.io/extoor/podcast-site/gopherd:latest
+          commonUpdateSettings:
+            updateStrategy: digest
+            platforms: [linux/amd64, linux/arm64]
+          manifestTargets:
+            helm:
+              tag: image.tags.gopherd
+        - alias: web
+          imageName: ghcr.io/extoor/podcast-site/web:latest
+          commonUpdateSettings:
+            updateStrategy: digest
+            platforms: [linux/amd64, linux/arm64]
+          manifestTargets:
+            helm:
+              tag: image.tags.web

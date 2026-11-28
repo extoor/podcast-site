@@ -110,6 +110,8 @@ kubectl -n podcasts create job --from=cronjob/podcast-site-generator podcast-sit
 ```
 
 С ArgoCD первая команда — `argocd app sync podcast-site` (или дождитесь автосинхронизации).
+Сам Argo CD нового образа не замечает: тег остаётся `latest`, манифесты не меняются. С Image
+Updater (ниже) новые образы выкатываются сами.
 
 ## ArgoCD
 
@@ -168,6 +170,39 @@ argocd app history podcast-site
 
 `deploy/kustomize/` — тот же чарт через kustomize (`kustomize build --enable-helm`) для своих
 патчей.
+
+## Новые образы без ручных перезапусков: Argo CD Image Updater
+
+[Argo CD Image Updater](https://github.com/argoproj-labs/argocd-image-updater) (v1.x)
+следит за тегом `latest` трёх образов в GHCR. Когда CI выкладывает новую сборку, он ставит
+Helm-параметр Application `image.tags.<образ>` в `latest@sha256:<digest>`: манифесты
+меняются, Argo CD синхронизирует, поды переходят на новые образы, а хук `generator-init`
+сразу пересобирает сайт новым генератором. В git ничего не пишется (запись через API Argo CD).
+Образы публичные, учётные данные реестра не нужны.
+
+Установите контроллер Helm-чартом в неймспейс Argo CD (чарт ставит и CRD `ImageUpdater`),
+затем его настройку — `deploy/argocd/image-updater.yaml` (ресурс `ImageUpdater`: три образа,
+стратегия `digest`, платформы amd64 и arm64). В чарте 1.5.0 — v1.5.0; `image.tag` берёт
+сборку v1.5.1 (тот же CRD; новее Go из-за CVE-2026-78659 и Argo CD 3.6.2), пока не вышел
+чарт с ней:
+
+```sh
+helm repo add argo https://argoproj.github.io/argo-helm
+helm repo update argo
+helm upgrade --install argocd-image-updater argo/argocd-image-updater -n argocd --version 1.5.0 --set image.tag=v1.5.1
+kubectl apply -n argocd -f deploy/argocd/image-updater.yaml
+```
+
+Реестр проверяется раз в 2 минуты. Что он сделал:
+
+```sh
+kubectl -n argocd logs deploy/argocd-image-updater-controller --since 10m | grep podcast-site
+argocd app get podcast-site --show-params
+```
+
+Параметры живут в Application, не в git: повторный `kubectl apply` вашего
+`deploy/local/argocd-application.yaml` их сбрасывает, и Image Updater ставит их заново за
+пару минут.
 
 ## Если что-то не работает
 

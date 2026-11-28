@@ -218,6 +218,10 @@
 7. [x] Kubernetes (radxa — только разработка, работает всё в кластере). Helm-чарт
        `deploy/helm/podcast-site` (проверка в CI — job `helm chart`: lint + kubeconform);
        развёрнут 27.11.2026: веб по HTTPS, Gopher снаружи, аудио из S3 через rclone. Решено:
+       - новые образы: сам ArgoCD их не видит (тег `latest`, манифесты те же) — Argo CD Image
+         Updater v1.x (`deploy/argocd/image-updater.yaml`, ресурс `ImageUpdater`, стратегия
+         `digest`) ставит параметр `image.tags.<образ>` = `latest@sha256:…` через API ArgoCD,
+         без записи в git; чарт берёт `image.tags.<образ>`, иначе `image.tag`;
        - деплой — Helm-чарт в репозитории, ArgoCD (`deploy/argocd/application.yaml`), по желанию
          kustomize поверх чарта (`deploy/kustomize/`, `--enable-helm`); образы — GHCR;
        - домен — только `domain` в values (+ `extraDomains`): из него Certificate, IngressRoute,

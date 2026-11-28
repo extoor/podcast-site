@@ -44,7 +44,10 @@ app.kubernetes.io/component: {{ index . 1 }}
 
 {{- define "ps.image" -}}
 {{- $ := index . 0 -}}
-{{- printf "%s/%s:%s" $.Values.image.registry (index . 1) $.Values.image.tag -}}
+{{- $name := index . 1 -}}
+{{- /* image.tags.<name> (set by Argo CD Image Updater, e.g. latest@sha256:...) wins */ -}}
+{{- $tag := default $.Values.image.tag (get ($.Values.image.tags | default dict) $name) -}}
+{{- printf "%s/%s:%s" $.Values.image.registry $name $tag -}}
 {{- end -}}
 
 {{- define "ps.mediaClaim" -}}

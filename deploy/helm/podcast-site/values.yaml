@@ -9,8 +9,15 @@ extraDomains: []
 
 image:
   registry: ghcr.io/extoor/podcast-site
-  # For production pin an immutable tag: sha-<commit> or weekly-<date> (see images.yml).
+  # For production pin an immutable tag: sha-<commit> or weekly-<date> (see images.yml),
+  # or let Argo CD Image Updater follow latest (deploy/argocd/image-updater.yaml).
   tag: latest
+  # Per image, over `tag`: Image Updater sets these to latest@sha256:<digest> when a new
+  # build is pushed, so the manifests change and Argo CD rolls the pods.
+  tags:
+    generator: ""
+    gopherd: ""
+    web: ""
   pullPolicy: Always
 imagePullSecrets: []
 
