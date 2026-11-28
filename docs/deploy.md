@@ -111,7 +111,8 @@ kubectl -n podcasts create job --from=cronjob/podcast-site-generator podcast-sit
 ```
 
 With ArgoCD the first command is `argocd app sync podcast-site` (or wait for the automated
-sync).
+sync). Argo CD alone does not see a new image: the tag stays `latest`, the manifests don't
+change. With Image Updater (below) new images roll out by themselves.
 
 ## ArgoCD
 
@@ -170,6 +171,40 @@ argocd app history podcast-site
 
 `deploy/kustomize/` is the same chart through kustomize (`kustomize build --enable-helm`) for
 your own patches.
+
+## New images without restarts by hand: Argo CD Image Updater
+
+[Argo CD Image Updater](https://github.com/argoproj-labs/argocd-image-updater) (v1.x)
+follows the `latest` tag of the three images in GHCR. When CI pushes a new build, it sets
+the Application's Helm parameter `image.tags.<image>` to `latest@sha256:<digest>`: the
+manifests change, Argo CD syncs, the pods roll onto the new images, and the
+`generator-init` hook rebuilds the site with the new generator. Nothing is written to git
+(write-back through the Argo CD API). The images are public, so it needs no registry
+credentials.
+
+Install the controller with its Helm chart into the Argo CD namespace (the chart installs
+the `ImageUpdater` CRD too), then its configuration, `deploy/argocd/image-updater.yaml` (an
+`ImageUpdater` resource: the three images, strategy `digest`, platforms amd64 and arm64).
+Chart 1.5.0 ships v1.5.0; `image.tag` takes the v1.5.1 build (the same CRD; a newer Go
+for CVE-2026-78659 and Argo CD 3.6.2) until a chart with it comes out:
+
+```sh
+helm repo add argo https://argoproj.github.io/argo-helm
+helm repo update argo
+helm upgrade --install argocd-image-updater argo/argocd-image-updater -n argocd --version 1.5.0 --set image.tag=v1.5.1
+kubectl apply -n argocd -f deploy/argocd/image-updater.yaml
+```
+
+It checks the registry every 2 minutes. To see what it did:
+
+```sh
+kubectl -n argocd logs deploy/argocd-image-updater-controller --since 10m | grep podcast-site
+argocd app get podcast-site --show-params
+```
+
+The parameters live in the Application, not in git: applying your
+`deploy/local/argocd-application.yaml` again drops them, and Image Updater sets them anew
+within a couple of minutes.
 
 ## When something goes wrong
 
