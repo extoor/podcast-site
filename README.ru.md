@@ -104,136 +104,13 @@ musl-файлы (линкует `rust-lld` из тулчейна Rust; все з
 
 ## Kubernetes
 
-Всё разворачивает Helm-чарт `deploy/helm/podcast-site`:
+Всё разворачивает Helm-чарт `deploy/helm/podcast-site`: генератор (CronJob), Caddy за Traefik с
+сертификатом cert-manager, gopherd на своём адресе (Multus) и аудио через rclone CSI-драйвер —
+всё без root, Pod Security «restricted». Ставится через Helm или ArgoCD.
 
-- домен пишется один раз — `domain` (и при желании `extraDomains`); из него берутся
-  `Certificate` cert-manager, оба `IngressRoute` Traefik (`web`, порт 80, перенаправляет на
-  HTTPS через middleware `redirect-scheme`; у `websecure` middleware нет) и базовый адрес
-  в плейлистах;
-- `generator` — CronJob (`generator.schedule`) и Job после каждой установки/обновления;
-  собранный сайт лежит на PVC (`site.storageClass`, по умолчанию `openebs-hostpath`, поэтому
-  три пода на одной ноде);
-- аудио — PV rclone CSI-драйвера только на чтение
-  ([veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone),
-  `crypt:music/Podcasts`); его конфигурация (ключ `configData`, весь `rclone.conf`) —
-  Secret, создаваемый вне чарта (`media.csi.nodePublishSecretRef`), либо свой claim через
-  `media.type: existingClaim`. `helm install`/`upgrade` останавливается, если Secret нет или в
-  нём нет ключа `configData`. На диск ноды ничего не кэшируется: чарт задаёт
-  `vfs-cache-mode=off`, в памяти остаются только списки каталогов и буферы чтения;
-- `gopherd` получает свой адрес через Multus (`gopher.network`) и слушает порт 70
-  без root (sysctl пода `net.ipv4.ip_unprivileged_port_start=0`); меню ссылаются на
-  `gopher.host` (по умолчанию `domain` — то же имя, что у веба);
-- все поды проходят Pod Security «restricted»; `networkPolicy.enabled` запрещает исходящие
-  соединения и пускает к веб-поду только Traefik.
-
-### Что нужно в кластере
-
-- Traefik с CRD (`traefik.io/v1alpha1`), точками входа `web` и `websecure` и middleware
-  `redirect-scheme` в неймспейсе `traefik` (`ingressRoute.*` в values);
-- cert-manager и издатель сертификатов (`certificate.issuerRef`, по умолчанию ClusterIssuer
-  `zerossl-production`);
-- rclone CSI-драйвер [veloxpack/csi-driver-rclone](https://github.com/veloxpack/csi-driver-rclone);
-- StorageClass для собранного сайта (`site.storageClass`, по умолчанию `openebs-hostpath`);
-- для Gopher — Multus с CNI-плагинами macvlan и static (NetworkAttachmentDefinition создаёт
-  чарт), или `gopher.enabled: false`.
-
-### 1. Свои значения — вне git
-
-Репозиторий публичный: настоящий домен и внутренние адреса кладутся в `deploy/local/`,
-он в `.gitignore`. Например, `deploy/local/values.yaml`:
-
-```yaml
-domain: podcasts.example.org
-gopher:
-  network:                 # the pod's own address (Multus macvlan)
-    enabled: true
-    master: eth0.100       # интерфейс ноды (здесь VLAN 100 на eth0)
-    address: 192.0.2.41/24
-    gateway: 192.0.2.1
-web:
-  trustedProxies: [<traefik-pod-cidr>]   # по умолчанию private_ranges
-```
-
-Все параметры с комментариями — в `deploy/helm/podcast-site/values.yaml`.
-
-### 2. Secret для rclone
-
-Драйвер читает только ключ `configData` — весь `rclone.conf` с секцией `crypt` и remote под
-ней (только эти две, без остальных ваших remote). Если конфигурация защищена паролем,
-выгрузите незашифрованную копию через `rclone config show`.
-
-```sh
-kubectl create namespace podcasts
-kubectl -n podcasts create secret generic podcast-site-rclone --from-file=configData=rclone.conf
-```
-
-### 3. Установка
-
-```sh
-helm upgrade --install podcast-site deploy/helm/podcast-site -n podcasts -f deploy/local/values.yaml
-kubectl -n podcasts get pods -w
-```
-
-Сразу после установки Job (`podcast-site-generator-init`) собирает сайт; поды веба и Gopher
-становятся готовыми, когда он закончит. Проверка:
-
-```sh
-kubectl -n podcasts get pods,certificate,ingressroute
-kubectl -n podcasts exec deploy/podcast-site-gopherd -- /usr/local/bin/gopherd --check 127.0.0.1:70
-kubectl -n podcasts logs deploy/podcast-site-web | tail -3
-```
-
-### Сеть
-
-- DNS-имя `domain` указывает на публичный адрес; порты 80 и 443 ведут на Traefik (проверке
-  HTTP-01 у cert-manager нужен порт 80).
-- Порт 70 публичного адреса переадресуется на собственный адрес пода Gopher. Ответы должны
-  уходить через тот же интерфейс, иначе соединение не установится. С `gopher.network.gateway`
-  чарт ставит через шлюз маршруты `0.0.0.0/1` и `128.0.0.0/1`: они точнее маршрута по умолчанию
-  на `eth0`, который `default-route` Multus заменяет не всегда (с k3s/flannel — нет). Сеть
-  кластера остаётся на `eth0`. SNAT на маршрутизаторе тоже решает задачу. Заглянуть в
-  distroless-под: `kubectl debug -it <под> --image=nicolaka/netshoot --profile=netadmin -- ip route`.
-- Адрес посетителя попадает в лог доступа (`client_ip`), только если его видит Traefik
-  (`externalTrafficPolicy: Local` у его Service, без SNAT перед ним), а поды Traefik входят в
-  `web.trustedProxies`.
-
-### Обновление
-
-Образы — `latest` с `pullPolicy: Always`, пересобираются из `main` и раз в неделю. Подтянуть их
-и сразу пересобрать сайт (иначе он пересоберётся по `generator.schedule`):
-
-```sh
-helm upgrade --install podcast-site deploy/helm/podcast-site -n podcasts -f deploy/local/values.yaml
-kubectl -n podcasts rollout restart deploy/podcast-site-web deploy/podcast-site-gopherd
-kubectl -n podcasts create job --from=cronjob/podcast-site-generator podcast-site-build-now
-```
-
-### ArgoCD
-
-`deploy/argocd/application.yaml` — пример; свою копию с настоящими значениями держите в
-`deploy/local/` и применяйте через `kubectl apply -f`. Если раньше ставили Helm'ом — удалите
-только запись о релизе Helm, ArgoCD подхватит работающие объекты. `helm uninstall` не делайте:
-он удалит PVC с собранным сайтом.
-
-```sh
-kubectl -n podcasts delete secret -l owner=helm,name=podcast-site
-kubectl apply -f deploy/local/argocd-application.yaml
-```
-
-`deploy/kustomize/` — тот же чарт через kustomize (`kustomize build --enable-helm`) для своих
-патчей.
-
-### Если что-то не работает
-
-Подробная шпаргалка (Helm, генератор, rclone, веб, сеть Gopher): [docs/troubleshooting.ru.md](docs/troubleshooting.ru.md).
-
-| Признак | Причина и что делать |
-|---|---|
-| `FailedMount … either configData or remoteType must be provided` | В Secret другой ключ (`--from-file=rclone.conf`). Пересоздайте с `--from-file=configData=…` и удалите поды. |
-| PVC в `Pending`, `volume … already bound to a different claim` | PV в состоянии `Released` после удаления его PVC. `kubectl patch pv <pv> --type json -p '[{"op":"remove","path":"/spec/claimRef/uid"}]'` |
-| `/media` пустой | Неверный `media.csi.volumeAttributes.remotePath` или ключи crypt. Проверьте `rclone lsd crypt:<путь>` с той же конфигурацией. |
-| `/media`: `Permission denied` | Том смонтирован без `allow-other`/`uid`/`gid`; чарт их добавляет — проверьте `media.csi.mountOptions` и `podSecurityContext`. |
-| Сертификат не выпускается | `kubectl -n podcasts describe certificate,challenge`: обычно DNS или порт 80 не доходит до Traefik. |
+- По шагам (значения вне git, Secret для rclone, установка, сеть, обновление, ArgoCD):
+  [docs/deploy.ru.md](docs/deploy.ru.md).
+- Если что-то не работает: [docs/troubleshooting.ru.md](docs/troubleshooting.ru.md).
 
 ## Непрерывная интеграция
 
@@ -245,8 +122,10 @@ GitHub Actions (`.github/workflows/`):
   (`helm lint`, kubeconform со схемами cert-manager и Traefik).
 - `images.yml`: три образа под amd64 + arm64 в `ghcr.io/<owner>/<repo>/{generator,gopherd,web}`
   из `main` и тегов `v*` (для pull request — только сборка); раз в неделю образы
-  пересобираются с последним Caddy и свежими базовыми образами. Коммит передаётся как
-  `GIT_COMMIT` и служит версией сайта: `rev <короткий хеш>` внизу каждой страницы (ссылка
+  пересобираются с последним Caddy и свежими базовыми образами. Push в `main`, где поменялись
+  только документация, чарт или `deploy/`, образы не собирает — работающий сайт не трогается.
+  Последний коммит, менявший исходники образов, передаётся как `GIT_COMMIT` и служит версией
+  сайта: `rev <короткий хеш>` внизу каждой страницы (ссылка
   на коммит) и в корневом меню Gopher. Локальная сборка берёт его из git (`-dirty` при
   незакоммиченных правках). Под ним — время сборки каталога (`ДД.ММ.ГГГГ ЧЧ:ММ`) в часовом
   поясе посетителя (без JS — в UTC).

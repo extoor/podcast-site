@@ -43,7 +43,7 @@ kubectl -n podcasts logs -f job/podcast-site-build-now
 
 В конце лога — строка `Готово: … страниц HTML …`. Версию собранного сайта видно внизу
 страницы (`rev <коммит>`) и в корневом меню Gopher (`Версия:`): если там старый коммит — образ
-не обновился (`rollout restart` и пересборка, см. «Обновление» в README).
+не обновился (`rollout restart` и пересборка, см. «Обновление» в [deploy.ru.md](deploy.ru.md)).
 
 ## rclone (аудио)
 
