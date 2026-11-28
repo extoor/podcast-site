@@ -105,8 +105,9 @@ media:
     volumeAttributes:
       remote: crypt
       remotePath: music/Podcasts
-    # more rclone mount flags without "--", e.g. [dir-cache-time=1h]; read-only is added
-    # by the driver itself
+    # more rclone mount flags without "--", e.g. [dir-cache-time=1h, buffer-size=8M];
+    # read-only is added by the driver itself, vfs-cache-mode=off by the chart (nothing is
+    # cached on disk; directory listings and read buffers stay in memory)
     mountOptions: []
     # the Secret with the key configData: the whole rclone.conf (the crypt section and the
     # remote under it, with the keys); created separately, never in git

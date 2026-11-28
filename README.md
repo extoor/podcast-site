@@ -119,7 +119,8 @@ The Helm chart `deploy/helm/podcast-site` deploys everything:
   `crypt:music/Podcasts`); its configuration (key `configData`, the whole `rclone.conf`) is
   a Secret made outside the chart (`media.csi.nodePublishSecretRef`), or use your own
   claim with `media.type: existingClaim`. `helm install`/`upgrade` stops if the Secret or its
-  `configData` key is missing;
+  `configData` key is missing. Nothing is cached on the node's disk: the chart pins
+  `vfs-cache-mode=off`, so rclone keeps only directory listings and read buffers in memory;
 - `gopherd` gets its own address through Multus (`gopher.network`) and listens on
   port 70 without root (the pod sysctl `net.ipv4.ip_unprivileged_port_start=0`); menus
   point to `gopher.host` (default: `domain`, the same name as the web);

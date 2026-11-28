@@ -205,6 +205,10 @@
          PV `crypt:music/Podcasts`, ReadOnlyMany, конфиг — Secret с ключом `configData` (именно
          так, не `rclone.conf`): секции `[crypt]` и S3 под ней; fsGroup read-only тома kubelet
          драйверу не передаёт — чарт сам добавляет `allow-other`, `uid`/`gid` из podSecurityContext;
+         кэш только в памяти: чарт последней опцией ставит `vfs-cache-mode=off` (на диск ноды
+         rclone ничего не пишет, mountOptions это не перебивают);
+         у подов web и gopherd аннотация `checksum/storage` (хеш отрендеренного `storage.yaml`):
+         опции монтирования меняются — поды перекатываются сами (Helm и ArgoCD);
          `templates/checks.yaml` (lookup) при install/upgrade останавливает установку без Secret
          или без `configData` (в template/lint/ArgoCD проверка пропускается);
        - собранный сайт — PVC RWO, `site.storageClass` (по умолчанию `openebs-hostpath`) —

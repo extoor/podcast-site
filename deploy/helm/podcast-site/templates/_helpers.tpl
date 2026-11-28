@@ -132,3 +132,12 @@ volumes:
       name: {{ include "ps.fullname" . }}-rules
   {{- end }}
 {{- end -}}
+
+{{/*
+Pod annotation that changes with the volumes (the rendered storage.yaml: the media PV's
+mount options, attributes and secret ref): a mount option only applies on a new mount, so
+the long-running pods roll when it changes, with Helm and ArgoCD alike.
+*/}}
+{{- define "ps.storageChecksum" -}}
+checksum/storage: {{ include (print .Template.BasePath "/storage.yaml") . | sha256sum }}
+{{- end }}
