@@ -27,6 +27,9 @@ const USAGE: &str = "\
                         (по умолчанию $GOPHER_HOST или localhost)
   --gopher-port <ПОРТ>  порт Gopher-сервера в меню
                         (по умолчанию $GOPHER_PORT или 7070)
+  --engine <ФАЙЛ>       audiocore.wasm — движок плеера на WebAssembly (бесшовное
+                        воспроизведение); без него плеер играет через <audio>
+                        (по умолчанию $AUDIOCORE_WASM)
   -h, --help            эта справка";
 
 struct Args {
@@ -34,6 +37,8 @@ struct Args {
     server: Server,
     /// `--scan`: scan the library first (else read the existing `catalog.json`).
     scan: Option<Options>,
+    /// `--engine`: audiocore.wasm, the player's WebAssembly engine.
+    engine: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Option<Args>> {
@@ -44,6 +49,7 @@ fn parse_args() -> Result<Option<Args>> {
     let mut media = PathBuf::from("/media/podcasts");
     let mut rules = PathBuf::from("podcasts.toml");
     let mut base_url = std::env::var("PODCAST_BASE_URL").ok();
+    let mut engine = std::env::var_os("AUDIOCORE_WASM").map(PathBuf::from);
 
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -56,6 +62,7 @@ fn parse_args() -> Result<Option<Args>> {
             "--media" => media = value("--media")?.into(),
             "--rules" => rules = value("--rules")?.into(),
             "--base-url" => base_url = Some(value("--base-url")?),
+            "--engine" => engine = Some(value("--engine")?.into()),
             "-h" | "--help" => {
                 println!("{USAGE}");
                 return Ok(None);
@@ -90,6 +97,7 @@ fn parse_args() -> Result<Option<Args>> {
         build,
         server: Server { host, port },
         scan,
+        engine,
     }))
 }
 
@@ -108,13 +116,24 @@ fn main() -> Result<()> {
 
     let mut menus = gopher::menus(&catalog, &args.server)?;
     menus.push(("robots.txt".to_owned(), sitegen::ROBOTS_TXT.to_owned()));
-    let pages = html::pages(&catalog, &args.server)?;
+    let engine = match &args.engine {
+        Some(path) => Some(sitegen::engine::Engine::new(
+            std::fs::read(path).with_context(|| {
+                format!("не удалось прочитать движок плеера {}", path.display())
+            })?,
+        )),
+        None => None,
+    };
+    let pages = html::pages(&catalog, &args.server, engine.as_ref())?;
     replace_dir(&args.build.join("gopher"), &menus)?;
     let mut www: Vec<(String, Vec<u8>)> = pages
         .iter()
         .map(|(p, t)| (p.clone(), t.clone().into_bytes()))
         .collect();
     www.extend(sitegen::icon::files()?);
+    if let Some(e) = engine {
+        www.extend(e.files);
+    }
     www.push((
         "robots.txt".to_owned(),
         sitegen::ROBOTS_TXT.as_bytes().to_vec(),

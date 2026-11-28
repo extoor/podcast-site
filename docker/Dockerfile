@@ -46,11 +46,12 @@ RUN case "$TARGETARCH" in \
       *) echo "unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac \
  && echo "$t" > /rust-target \
- && rustup target add "$t"
+ && rustup target add "$t" wasm32-unknown-unknown
 COPY Cargo.toml Cargo.lock ./
 COPY podscan podscan
 COPY sitegen sitegen
 COPY gopherd gopherd
+COPY audiocore audiocore
 # inlined into the pages at compile time (include_str!)
 COPY web web
 # The crate download cache is shared by the amd64 and arm64 builds running side by side:
@@ -63,6 +64,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
  && cargo build --release --locked --target "$t" -p sitegen -p gopherd \
  && mkdir -p /out/site \
  && cp "target/$t/release/sitegen" "target/$t/release/gopherd" /out/
+# The player's engine (audiocore, WebAssembly): the same file for every architecture.
+# A command of its own: the musl linker settings above are not for wasm32.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/src/target,id=podcast-site-target-${TARGETARCH} \
+    cargo build --release --locked --target wasm32-unknown-unknown -p audiocore \
+ && cp target/wasm32-unknown-unknown/release/audiocore.wasm /out/
 
 # --- generator: CronJob ----------------------------------------------------------------
 # Needs: /media (read-only), /site (writable). Settings by environment:
@@ -70,6 +77,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 #   GOPHER_HOST, GOPHER_PORT  where the Gopher menus point (the public name and port)
 FROM gcr.io/distroless/static-debian12:nonroot AS generator
 COPY --from=build /out/sitegen /usr/local/bin/sitegen
+# the player's WebAssembly engine: sitegen puts it on the site under a content name
+COPY --from=build /out/audiocore.wasm /usr/share/podcast-site/audiocore.wasm
+ENV AUDIOCORE_WASM=/usr/share/podcast-site/audiocore.wasm
 # /site owned by the image user: a fresh volume mounted there inherits it (in Kubernetes
 # the pod sets fsGroup: 65532 as well)
 COPY --from=build --chown=65532:65532 /out/site /site

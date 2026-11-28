@@ -15,7 +15,7 @@
 
   // Semantic version of this module, its only copy: the title and TextPlayer.version
   // show it. Bump it with every change and add a CHANGELOG.md entry (CI checks).
-  const VERSION = "0.3.0";
+  const VERSION = "0.4.0";
 
   const DEFAULTS = {
     links: "a[data-tp]",                 // CSS selector or an array of <a> elements
@@ -30,6 +30,8 @@
     spectrumCookie: "tp_spectrum",       // cookie that keeps the A key choice (shown / hidden)
     spectrumTheme: "classic",            // analyzer colors: an id from TextPlayer.themes
     spectrumThemeCookie: "tp_spectrum_theme", // cookie that keeps the T key choice (theme id)
+    engine: null,                        // { wasm, worklet }: URLs of the WebAssembly engine
+    gapless: true,                       // with the engine: the next track follows without a gap
   };
 
   // The H key help, in the page's language. Each row: the keys, what they do (wrapped
@@ -199,6 +201,216 @@
    *   data-size (bytes), data-format (e.g. "MPEG-1 Layer III  192 kbps CBR  44.1 kHz  Stereo").
    * Returns a controller { open(index), close(), audio } or null if there are no links.
    */
+  // --- WebAssembly engine ---------------------------------------------------------
+  // With options.engine ({ wasm, worklet }: URLs of audiocore's module and worklet.js),
+  // MP3 plays through Web Audio instead of an <audio> element: the page downloads the
+  // file (paced: about two minutes ahead), the worklet decodes it with audiocore. That
+  // makes gapless playback possible: the next track is fetched ahead and starts on the
+  // very next sample. The object below stands in for the <audio> element: the same
+  // properties, methods and events the player uses.
+  const PACE = 120;                     // seconds of compressed audio kept ahead
+  function wasmAudio(cfg) {             // cfg: { wasm, worklet, gapless, next(), fail() }
+    const ev = new EventTarget();
+    const fire = (type) => ev.dispatchEvent(new Event(type));
+    const AC = global.AudioContext || global.webkitAudioContext;
+    let ctx;
+    // the library is 44.1 kHz: a context at that rate needs no resampling in the worklet
+    try { ctx = new AC({ sampleRate: 44100, latencyHint: "playback" }); } catch { ctx = new AC(); }
+    const gain = ctx.createGain();
+    gain.connect(ctx.destination);
+    let node = null, port = null, dead = false;
+    const queue = [];                    // messages sent before the worklet is up
+    const post = (m, transfer = []) => (port ? port.postMessage(m, transfer) : queue.push([m, transfer]));
+    const taps = [];                     // analysers waiting for the node
+    const ready = (async () => {
+      const res = await fetch(cfg.wasm);
+      if (!res.ok) throw new Error(`${cfg.wasm}: ${res.status}`);
+      const module = await WebAssembly.compile(await res.arrayBuffer());
+      await ctx.audioWorklet.addModule(cfg.worklet);
+      node = new global.AudioWorkletNode(ctx, "textplayer", {
+        numberOfInputs: 0, outputChannelCount: [2], processorOptions: { module, gapless: cfg.gapless },
+      });
+      node.connect(gain);
+      taps.splice(0).forEach((an) => node.connect(an));
+      port = node.port;
+      port.onmessage = (e) => message(e.data);
+      for (const [m, t] of queue.splice(0)) port.postMessage(m, t);
+    })();
+    ready.catch(() => { if (!dead) { api.destroy(); cfg.fail(); } });
+
+    // A track: one download of one file into one worklet stream. A seek is a new track
+    // of the same file that starts at `base` seconds; it keeps the file's format.
+    let seq = 0, cur = null, next = null, paused = true, ended = false;
+    let ticks = [];                      // downloads waiting for the next position report
+    const tick = () => new Promise((r) => ticks.push(r));
+    const byId = (id) => (cur && cur.id === id ? cur : next && next.id === id ? next : null);
+    const duration = (t) => !t ? NaN : t.total > 0 ? t.total / t.rate
+      : t.bitrate && t.size ? (t.size - t.start) * 8 / (t.bitrate * 1000) : NaN;
+    const ahead = (t) => (t.bitrate ? t.pending / (t.bitrate * 125) : t.pending / 2e5);
+
+    function track(url, base, from) {
+      const t = { id: ++seq, url, base, frames: 0, pending: 0, received: 0, done: false,
+        rate: 0, total: -1, bitrate: 0, start: 0, padding: 0, size: 0, ctrl: null };
+      if (from) Object.assign(t, { rate: from.rate, total: from.total, bitrate: from.bitrate,
+        start: from.start, padding: from.padding, size: from.size });
+      return t;
+    }
+    function stop(t) {
+      if (!t) return;
+      if (t.ctrl) t.ctrl.abort();
+      post({ t: "drop", id: t.id });
+    }
+    async function pump(t, offset) {
+      const ctrl = t.ctrl = new AbortController();
+      try {
+        const res = await fetch(t.url, { signal: ctrl.signal, headers: offset ? { Range: `bytes=${offset}-` } : {} });
+        if (!res.ok) throw new Error(`${t.url}: ${res.status}`);
+        if (offset && res.status !== 206) t.base = 0;      // no range support: from the start
+        const range = /\/(\d+)$/.exec(res.headers.get("Content-Range") || "");
+        t.size = t.size || (range ? Number(range[1]) : Number(res.headers.get("Content-Length")) || 0);
+        const reader = res.body.getReader();
+        for (;;) {
+          while (ahead(t) > (t.bitrate ? PACE : 1) && !ctrl.signal.aborted) await tick();
+          const { done, value } = await reader.read();
+          if (done) break;
+          // transfer a buffer of exactly these bytes
+          const buf = value.byteOffset === 0 && value.byteLength === value.buffer.byteLength
+            ? value.buffer : value.slice().buffer;
+          t.received += value.byteLength;
+          t.pending += value.byteLength;
+          post({ t: "data", id: t.id, buf }, [buf]);
+          if (t === cur) fire("progress");
+        }
+        t.done = true;
+        post({ t: "end", id: t.id });
+        if (t === cur) { fire("progress"); preload(); }
+      } catch (e) {
+        if (e.name !== "AbortError" && t === cur) fire("error");
+      }
+    }
+    // gapless: once the current file is downloaded, fetch the next one ahead
+    function preload() {
+      if (!cfg.gapless || next || !cur || !cur.done) return;
+      const url = cfg.next();
+      if (!url) return;
+      next = track(url, 0);
+      post({ t: "open", id: next.id, trim: 0 });
+      post({ t: "next", id: next.id });
+      pump(next, 0);
+    }
+    function start(url, at) {
+      ended = false;
+      if (!at && next && next.url === url) {           // already on its way: just switch
+        stop(cur);
+        cur = next;
+        next = null;
+        post({ t: "play", id: cur.id });
+      } else {
+        const from = cur && cur.url === url && cur.rate ? cur : null;
+        stop(cur);
+        stop(next);
+        next = null;
+        cur = track(url, at, from);
+        // a seek: the byte for that time (constant bitrate), and the end cut kept exact
+        const offset = at && from ? Math.floor(from.start + (at / duration(from)) * (from.size - from.start)) : 0;
+        post({ t: "open", id: cur.id, trim: offset ? from.padding : 0 });
+        post({ t: "play", id: cur.id });
+        pump(cur, offset);
+      }
+      fire("durationchange");
+      fire("timeupdate");
+    }
+    function message(m) {
+      switch (m.t) {
+        case "format": {
+          const t = byId(m.id);
+          if (t && !t.rate) {
+            Object.assign(t, { rate: m.rate, total: m.total, bitrate: m.bitrate, start: m.start, padding: m.padding });
+            if (t === cur) { fire("durationchange"); fire("loadedmetadata"); }
+          }
+          break;
+        }
+        case "time":
+          if (cur && m.id === cur.id) { cur.frames = m.frames; cur.pending = m.pending; }
+          if (next && m.nextId === next.id) next.pending = m.nextPending;
+          ticks.splice(0).forEach((r) => r());
+          fire("timeupdate");
+          break;
+        case "waiting":
+          fire("waiting");
+          break;
+        case "ended":
+          if (!cur || m.id !== cur.id) break;
+          if (m.next !== null && next && m.next === next.id) {
+            cur = next;                                   // went on without a gap
+            next = null;
+            fire("advance");
+            fire("durationchange");
+            preload();
+          } else {
+            cur.frames = Math.round(((duration(cur) || 0) - cur.base) * ctx.sampleRate);
+            ended = true;
+            fire("ended");
+          }
+          break;
+      }
+    }
+
+    const api = {
+      NETWORK_IDLE: 1, HAVE_FUTURE_DATA: 3, preload: "auto",
+      ctx,
+      get src() { return cur ? cur.url : ""; },
+      set src(url) { start(url, 0); },
+      get paused() { return paused; },
+      get ended() { return ended; },
+      get duration() { return duration(cur); },
+      get currentTime() { return cur ? cur.base + cur.frames / ctx.sampleRate : 0; },
+      set currentTime(t) {
+        const d = duration(cur);
+        if (cur && isFinite(d)) start(cur.url, Math.max(0, Math.min(d - 0.05, t)));
+      },
+      get volume() { return gain.gain.value; },
+      set volume(v) { gain.gain.value = v; fire("volumechange"); },
+      get buffered() {
+        const t = cur, end = t ? (t.done ? duration(t) : t.base + (t.bitrate ? t.received / (t.bitrate * 125) : 0)) : 0;
+        return { length: t ? 1 : 0, start: () => (t ? t.base : 0), end: () => end || 0 };
+      },
+      get networkState() { return cur && !cur.done ? 2 : 1; },
+      get readyState() { return cur && cur.pending > 0 ? 4 : 0; },
+      get gapless() { return cfg.gapless; },
+      set gapless(on) {
+        cfg.gapless = !!on;
+        post({ t: "gapless", on: cfg.gapless });
+        if (on) preload(); else { stop(next); next = null; }
+      },
+      play() {
+        if (ended && cur) start(cur.url, 0);
+        paused = false;
+        post({ t: "resume" });
+        fire("play");
+        return Promise.all([ctx.resume(), ready]).then(() => {});
+      },
+      pause() {
+        paused = true;
+        post({ t: "pause" });
+        fire("pause");
+      },
+      // the analyser listens to the worklet's output (before the volume)
+      tap(an) { if (node) node.connect(an); else taps.push(an); },
+      destroy() {
+        dead = true;
+        stop(cur);
+        stop(next);
+        cur = next = null;
+        ctx.close().catch(() => {});
+      },
+      addEventListener: (...a) => ev.addEventListener(...a),
+      removeEventListener: (...a) => ev.removeEventListener(...a),
+    };
+    post({ t: "pause" });
+    return api;
+  }
+
   function attach(options) {
     const o = Object.assign({}, DEFAULTS, options);
     const doc = global.document;
@@ -211,9 +423,27 @@
     const help = HELP[lang] || HELP.en;
     let helpShown = false;                 // the H key: the help instead of the key line
     const BROWSER = browserName();
-    const audio = new Audio();
-    audio.preload = "auto";
     let cur = -1;
+    // Audio from another origin (without CORS) can't be fetched, nor read by Web Audio.
+    const sameOrigin = links.every((a) => {
+      try { return new URL(a.href, global.location.href).origin === global.location.origin; }
+      catch { return false; }
+    });
+    // The WebAssembly engine when it is given and can run; else an <audio> element. If the
+    // engine fails to load (old browser, blocked file), the element takes over.
+    const canEngine = o.engine && o.engine.wasm && o.engine.worklet && sameOrigin
+      && global.AudioWorkletNode && global.WebAssembly && links.every((a) => /\.mp3$/i.test(new URL(a.href, global.location.href).pathname));
+    let audio = canEngine ? wasmAudio({
+      wasm: o.engine.wasm, worklet: o.engine.worklet, gapless: o.gapless,
+      next: () => (cur + 1 < links.length ? links[cur + 1].href : null),
+      fail: () => {
+        audio = new Audio();
+        bind(audio);
+        if (spec.an) Object.assign(spec, { an: null, ctx: null });   // rebuilt for the element
+        if (cur >= 0 && !overlay.hidden) open(cur);
+      },
+    }) : new Audio();
+    audio.preload = "auto";
 
     const overlay = doc.createElement("div");
     overlay.className = "tp-overlay";
@@ -290,7 +520,8 @@
         // decoder left, buffer (time buffered ahead, as on the progress line) in the
         // middle, volume right: the free columns are shared out between them
         row(...spread(
-          [L("Decoder: "), V(BROWSER)],
+          // who decodes: the WebAssembly engine, or the browser behind <audio>
+          [L("Decoder: "), V(audio.tap ? "audiocore" : BROWSER)],
           [L("Buf: "), seg(bar(buf, 13), "tp-lb"), V(" " + time(ahead))],
           [L("Vol: "), seg(bar(audio.volume, 13), "tp-lb tp-slider", 'data-act="vol"'), V(" " + db.padStart(5))],
         )),
@@ -313,10 +544,6 @@
     // Web Audio: the element feeds an AnalyserNode. Routing an element through Web
     // Audio is for good, and audio from another origin (without CORS) would then come
     // out silent, so it is used only when every link is on this site.
-    const sameOrigin = links.every((a) => {
-      try { return new URL(a.href, global.location.href).origin === global.location.origin; }
-      catch { return false; }
-    });
     const spec = {
       on: o.spectrum && sameOrigin && !!(global.AudioContext || global.webkitAudioContext),
       shown: readCookie(o.spectrumCookie) !== "0",   // the A key; shown unless turned off
@@ -372,13 +599,17 @@
       if (!spec.an) {
         try {
           const AC = global.AudioContext || global.webkitAudioContext;
-          spec.ctx = new AC();
-          const src = spec.ctx.createMediaElementSource(audio);
+          // the engine has its own context and taps its output; an element is routed
+          // through the analyser to the speakers
+          spec.ctx = audio.ctx || new AC();
           spec.an = spec.ctx.createAnalyser();
           spec.an.fftSize = 4096;
           spec.an.smoothingTimeConstant = 0.5;
-          src.connect(spec.an);
-          spec.an.connect(spec.ctx.destination);
+          if (audio.tap) audio.tap(spec.an);
+          else {
+            spec.ctx.createMediaElementSource(audio).connect(spec.an);
+            spec.an.connect(spec.ctx.destination);
+          }
           spec.data = new Float32Array(spec.an.frequencyBinCount);
           spec.levels = new Array(spec.bands).fill(0);
           spec.peaks = new Array(spec.bands).fill(0);
@@ -480,10 +711,21 @@
       open(i);
     }));
 
-    for (const ev of ["timeupdate", "progress", "suspend", "waiting", "volumechange", "play", "pause", "durationchange", "loadedmetadata"]) {
-      audio.addEventListener(ev, () => { if (!overlay.hidden) render(); });
+    function bind(a) {
+      for (const ev of ["timeupdate", "progress", "suspend", "waiting", "volumechange", "play", "pause", "durationchange", "loadedmetadata"]) {
+        a.addEventListener(ev, () => { if (a === audio && !overlay.hidden) render(); });
+      }
+      a.addEventListener("ended", () => { if (a === audio && cur + 1 < links.length) open(cur + 1); });
+      // the engine went on to the next track by itself (gapless): follow it in the list
+      a.addEventListener("advance", () => {
+        if (a !== audio || cur + 1 >= links.length) return;
+        itemOf(links[cur]).classList.remove(o.playingClass);
+        cur += 1;
+        itemOf(links[cur]).classList.add(o.playingClass);
+        if (!overlay.hidden) render();
+      });
     }
-    audio.addEventListener("ended", () => { if (cur + 1 < links.length) open(cur + 1); });
+    bind(audio);
 
     // The mouse works only on the two sliders (progress and volume).
     // The window is redrawn several times a second, so a "click" (down and up on the

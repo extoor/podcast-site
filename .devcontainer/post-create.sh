@@ -22,9 +22,10 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q caddy chromium
 # run this line once more after one.
 sudo caddy add-package github.com/caddyserver/transform-encoder
 
-# Rust: musl targets for the static binaries of the images (amd64 and arm64),
+# Rust: musl targets for the static binaries of the images (amd64 and arm64), wasm32 for
+# the player engine (audiocore);
 # audit and license checks run before every commit.
-rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl wasm32-unknown-unknown
 cargo install cargo-audit cargo-deny --locked
 
 # Commit signing: the public key (the secret one stays on the Mac, the agent is forwarded).

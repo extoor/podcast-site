@@ -81,6 +81,8 @@ beforehand (in podcast-site this is done by `podscan`, module `mpeg.rs`).
 | `spectrumCookie` | `"tp_spectrum"`      | cookie that keeps the `A` key choice for a year (`1` shown, `0` hidden) |
 | `spectrumTheme` | `"classic"`            | the analyzer's color theme until the visitor picks one with `T` (see below) |
 | `spectrumThemeCookie` | `"tp_spectrum_theme"` | cookie that keeps the `T` key choice for a year (the theme id) |
+| `engine`       | `null`                  | `{ wasm, worklet }`: URLs of `audiocore.wasm` and `worklet.js` — the WebAssembly engine (see below) |
+| `gapless`      | `true`                  | with the engine: the next track follows the current one without a gap |
 
 `attach` returns `{ open(index), close(), audio }`, or `null` if there are no links.
 `TextPlayer.themes` lists the analyzer themes as `{ id, name }`.
@@ -99,6 +101,28 @@ the analyzer names the new one (`─ Fire ─`). Each colors the segments by the
 | `matrix`    | Matrix    | dark to bright green |
 | `amber`     | Amber     | brown to amber, like an amber CRT |
 | `synthwave` | Synthwave | violet, magenta, pink, cyan |
+
+## WebAssembly engine
+
+With the `engine` option MP3 plays through Web Audio instead of an `<audio>` element. The
+page downloads the file itself (paced about two minutes ahead), and an AudioWorklet
+(`worklet.js`) decodes it with [audiocore](../../audiocore) — Rust built to WebAssembly,
+bit-exact with minimp3. What it adds:
+
+- **gapless playback** (`gapless: true`): the encoder delay and padding are cut off (from
+  the LAME tag), the next track is downloaded once the current one is, and it starts on
+  the very next sample; with `gapless: false` it starts when the current one has ended;
+- seeking is a new range request from the byte for that time (constant bitrate), and the
+  end of the track stays exact after it.
+
+While the engine plays, the `Decoder:` field reads `audiocore`; with `<audio>` it names the
+browser.
+
+The engine is used only when the links are on the page's own site and end in `.mp3`, and
+the browser has AudioWorklet and WebAssembly; if it fails to load, the player falls back
+to `<audio>` and goes on with the same track. Serve both files with a name that changes
+with their contents (sitegen: `player/audiocore.<hash>.wasm`) and a long cache; the
+Content-Security-Policy needs `script-src 'self' 'wasm-unsafe-eval'` and `connect-src 'self'`.
 
 ## Controls
 

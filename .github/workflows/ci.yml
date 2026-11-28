@@ -29,6 +29,12 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
+      # the player's engine is built for the browser too
+      - name: audiocore for WebAssembly
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo clippy --locked -p audiocore --target wasm32-unknown-unknown -- -D warnings
+          cargo build --locked --release -p audiocore --target wasm32-unknown-unknown
 
   supply-chain:
     name: cargo audit, cargo deny
@@ -48,9 +54,23 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0     # the base of a pull request, for the version check
-      # textplayer's version (web/textplayer/CHANGELOG.md): one VERSION in the file, the
-      # changelog's top entry is that version, and a pull request that changes the file
-      # raises it
+      # Versioned modules keep a changelog: its top entry is the module's version, and a
+      # pull request that changes the module raises it.
+      # audiocore: the version in Cargo.toml.
+      - name: audiocore version and changelog
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          ver() { sed -n 's/^version = "\([0-9]*\.[0-9]*\.[0-9]*\)"$/\1/p' | head -1; }
+          new=$(ver < audiocore/Cargo.toml)
+          top=$(sed -n 's/^## \([0-9][^ ]*\)$/\1/p' audiocore/CHANGELOG.md | head -1)
+          [ "$top" = "$new" ] || { echo "::error::audiocore/CHANGELOG.md starts with $top, Cargo.toml is $new"; exit 1; }
+          if [ -n "$BASE" ] && ! git diff --quiet "$BASE" HEAD -- audiocore ':!audiocore/CHANGELOG.md'; then
+            old=$(git show "$BASE:audiocore/Cargo.toml" 2>/dev/null | ver)
+            [ "$old" != "$new" ] || { echo "::error::audiocore changed, raise its version ($new)"; exit 1; }
+          fi
+          echo "audiocore $new"
+      # textplayer: one VERSION in textplayer.js
       - name: textplayer version and changelog
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
