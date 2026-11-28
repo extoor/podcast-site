@@ -46,6 +46,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0     # the base of a pull request, for the version check
+      # textplayer's version (web/textplayer/CHANGELOG.md): one VERSION in the file, the
+      # changelog's top entry is that version, and a pull request that changes the file
+      # raises it
+      - name: textplayer version and changelog
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          js=web/textplayer/textplayer.js
+          ver() { sed -n 's/^  const VERSION = "\([0-9]*\.[0-9]*\.[0-9]*\)";$/\1/p'; }
+          new=$(ver < "$js")
+          [ -n "$new" ] || { echo "::error file=$js::no semantic VERSION in $js"; exit 1; }
+          top=$(sed -n 's/^## \([0-9][^ ]*\)$/\1/p' web/textplayer/CHANGELOG.md | head -1)
+          [ "$top" = "$new" ] || { echo "::error::CHANGELOG.md starts with $top, textplayer.js is $new"; exit 1; }
+          if [ -n "$BASE" ] && ! git diff --quiet "$BASE" HEAD -- "$js"; then
+            old=$(git show "$BASE:$js" | ver)
+            [ "$old" != "$new" ] || { echo "::error file=$js::$js changed, bump VERSION ($new)"; exit 1; }
+          fi
+          echo "textplayer $new"
       - name: JavaScript modules parse and can be inlined
         run: |
           for f in web/*/*.js; do
