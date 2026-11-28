@@ -7,7 +7,7 @@ centered over the page and is drawn entirely with characters: `╔═╗` frames
 One file, no dependencies; it adds its own styles.
 
 ```
-╔════════════════════════ Browser Player v0.1 ═════════════════════════╗
+╔═══════════════════════ Browser Player v0.3.0 ════════════════════════╗
 ║ File:    mordax-bastards-zebra-2015-04-04-podkasty-04.04.15-kissfm.… ║
 ╟──────────────────────────────────────────────────────────────────────╢
 ║ Title:   ZEBRA                                                       ║
@@ -20,7 +20,7 @@ One file, no dependencies; it adds its own styles.
 ╟──────────────────────────────────────────────────────────────────────╢
 ║ ► 00:02 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 59:59 ║
 ╟──────────────────────────────────────────────────────────────────────╢
-║ Spc:next | P:prev | ←→↑↓:seek | S:pause | +-:vol | A:spec | Esc:exit ║
+║ Spc:next | P:prev | ←→↑↓:seek | S:pause | +-:vol | H:help | Esc:exit ║
 ╚══════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -70,7 +70,8 @@ beforehand (in podcast-site this is done by `podscan`, module `mpeg.rs`).
 | option         | default                 | meaning |
 |----------------|-------------------------|---------|
 | `links`        | `"a[data-tp]"`          | CSS selector or an array of `<a>` elements |
-| `title`        | `"Browser Player v0.1"` | title in the top frame |
+| `title`        | `"Browser Player v<version>"` | title in the top frame |
+| `lang`         | `""`                    | language of the `H` help: `en`, `ru` or `uk` (`ua` works too); empty — the page's `<html lang>`, else English |
 | `item`         | `"li"`                  | closest ancestor of the link that gets `playingClass` (the link itself if there is none) |
 | `playingClass` | `"tp-playing"`          | class of the current track, to highlight it in the list |
 | `width`        | `70`                    | inner width of the window, in characters |
@@ -78,14 +79,35 @@ beforehand (in podcast-site this is done by `podscan`, module `mpeg.rs`).
 | `spectrum`     | `true`                  | spectrum analyzer under the progress line: LED-style bars of `▂▂` segments, from 50 Hz to 16 kHz (Web Audio) |
 | `spectrumRows` | `16`                    | segments per bar (a segment takes about a third of a line) |
 | `spectrumCookie` | `"tp_spectrum"`      | cookie that keeps the `A` key choice for a year (`1` shown, `0` hidden) |
+| `spectrumTheme` | `"classic"`            | the analyzer's color theme until the visitor picks one with `T` (see below) |
+| `spectrumThemeCookie` | `"tp_spectrum_theme"` | cookie that keeps the `T` key choice for a year (the theme id) |
 
 `attach` returns `{ open(index), close(), audio }`, or `null` if there are no links.
+`TextPlayer.themes` lists the analyzer themes as `{ id, name }`.
+
+### Analyzer themes
+
+`T` switches to the next theme, `Shift+T` to the previous one; for a second the separator under
+the analyzer names the new one (`─ Fire ─`). Each colors the segments by their height, bottom to top:
+
+| id | name | colors |
+|---|---|---|
+| `classic`   | Classic   | green, yellow, red bands, as on hi-fi LED meters (CSS variables below) |
+| `fire`      | Fire      | dark red, red, orange, yellow |
+| `ice`       | Ice       | navy, blue, sky blue, cyan |
+| `rainbow`   | Rainbow   | violet, blue, green, yellow, red |
+| `matrix`    | Matrix    | dark to bright green |
+| `amber`     | Amber     | brown to amber, like an amber CRT |
+| `synthwave` | Synthwave | violet, magenta, pink, cyan |
 
 ## Controls
 
 - Keys: Space — next track, `P` — previous, `<` `>` or `←` `→` — seek 10 seconds, `↑` `↓` — seek a minute,
   `S` — pause, `+` `-` — volume, `A` — show / hide the spectrum analyzer (the window
-  resizes to fit, the choice is kept in a cookie), `Esc` or Backspace — close. Keys are matched by `e.code`, so they
+  resizes to fit, the choice is kept in a cookie), `T` / `Shift+T` — next / previous analyzer
+  theme (kept in a cookie too; shows a hidden analyzer), `H` — a detailed help in place of
+  the key line (every key and the mouse, in the page's language), `Esc` or
+  Backspace — close (with the help open: close the help). Keys are matched by `e.code`, so they
   work in any keyboard layout.
 - Mouse: click or drag on the progress and volume bars; a click outside the window closes it.
   The key help line is plain text and does not react to the mouse.
@@ -109,7 +131,7 @@ Colors and font are set with CSS variables on `:root` or `.tp-overlay`:
 | `--tp-font`       | `"DejaVu Sans Mono", Menlo, Consolas, "Liberation Mono", monospace` | font |
 | `--tp-font-size`  | `min(16px, calc((100vw - 2rem) / 44))` | font size: the window fits a phone screen |
 | `--tp-z`          | `1000`       | z-index |
-| `--tp-spec-low`, `--tp-spec-mid`, `--tp-spec-high` | `#1a1`, `#cc0`, `#d22` | analyzer segments: bottom, middle, top |
+| `--tp-spec-low`, `--tp-spec-mid`, `--tp-spec-high` | `#1a1`, `#cc0`, `#d22` | analyzer segments in the Classic theme: bottom, middle, top |
 
 How the analyzer works: as many bands as fit the window edge to edge (23 at the default width),
 spaced evenly on a log scale from 50 Hz to 16 kHz; a band
@@ -126,6 +148,14 @@ player works as before, without the bars.
 
 The font must be monospaced and include box-drawing (`╔═║`) and block (`█░`) characters,
 otherwise the frames fall apart.
+
+## Versions
+
+[Semantic Versioning](https://semver.org/): MAJOR for incompatible changes to options, the
+API or the CSS variables, MINOR for features, PATCH for fixes. The version is `VERSION` at
+the top of `textplayer.js`, its only copy: the default title and `TextPlayer.version` show it. Every change to the file raises it and gets an entry in
+[CHANGELOG.md](CHANGELOG.md); CI fails a pull request that changes the file without a new
+version, or whose changelog doesn't start with it.
 
 ## License
 

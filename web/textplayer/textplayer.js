@@ -13,9 +13,14 @@
 (function (global) {
   "use strict";
 
+  // Semantic version of this module, its only copy: the title and TextPlayer.version
+  // show it. Bump it with every change and add a CHANGELOG.md entry (CI checks).
+  const VERSION = "0.3.0";
+
   const DEFAULTS = {
     links: "a[data-tp]",                 // CSS selector or an array of <a> elements
-    title: "Browser Player v0.1",        // shown in the top frame
+    title: `Browser Player v${VERSION}`, // shown in the top frame
+    lang: "",                            // help language (en, ru, uk); default: <html lang>
     item: "li",                          // closest element that gets `playingClass`
     playingClass: "tp-playing",
     width: 70,                           // inner width of the window, in columns
@@ -23,7 +28,92 @@
     spectrum: true,                      // spectrum analyzer under "Buf" (same-origin audio only)
     spectrumRows: 16,                    // segments per bar (a segment is about a third of a line)
     spectrumCookie: "tp_spectrum",       // cookie that keeps the A key choice (shown / hidden)
+    spectrumTheme: "classic",            // analyzer colors: an id from TextPlayer.themes
+    spectrumThemeCookie: "tp_spectrum_theme", // cookie that keeps the T key choice (theme id)
   };
+
+  // The H key help, in the page's language. Each row: the keys, what they do (wrapped
+  // to the window). The short key line at the bottom stays English, like the window.
+  const HELP = {
+    en: {
+      title: "Keys",
+      rows: [
+        ["Space", "next track"],
+        ["P", "previous track"],
+        ["← →  < >", "seek 10 seconds back / forward"],
+        ["↑ ↓", "seek a minute forward / back"],
+        ["S", "pause / resume"],
+        ["+ -", "volume up / down"],
+        ["A", "show / hide the spectrum analyzer"],
+        ["T  Shift+T", "next / previous color theme of the analyzer"],
+        ["H", "this help; H or Esc closes it"],
+        ["Esc  Bksp", "close the player"],
+        ["Mouse", "click or drag the progress and volume bars; a click outside the window closes it"],
+      ],
+    },
+    ru: {
+      title: "Клавиши",
+      rows: [
+        ["Пробел", "следующий трек"],
+        ["P", "предыдущий трек"],
+        ["← →  < >", "перемотка на 10 секунд назад / вперёд"],
+        ["↑ ↓", "перемотка на минуту вперёд / назад"],
+        ["S", "пауза / продолжить"],
+        ["+ -", "громче / тише"],
+        ["A", "показать / спрятать анализатор спектра"],
+        ["T  Shift+T", "следующая / предыдущая цветовая тема анализатора"],
+        ["H", "эта справка; закрыть — H или Esc"],
+        ["Esc  Bksp", "закрыть плеер"],
+        ["Мышь", "клик и перетаскивание по полосам прогресса и громкости; клик мимо окна закрывает его"],
+      ],
+    },
+    uk: {
+      title: "Клавіші",
+      rows: [
+        ["Пробіл", "наступний трек"],
+        ["P", "попередній трек"],
+        ["← →  < >", "перемотка на 10 секунд назад / вперед"],
+        ["↑ ↓", "перемотка на хвилину вперед / назад"],
+        ["S", "пауза / продовжити"],
+        ["+ -", "гучніше / тихіше"],
+        ["A", "показати / сховати аналізатор спектра"],
+        ["T  Shift+T", "наступна / попередня кольорова тема аналізатора"],
+        ["H", "ця довідка; закрити — H або Esc"],
+        ["Esc  Bksp", "закрити плеєр"],
+        ["Миша", "клік і перетягування по смугах прогресу та гучності; клік поза вікном закриває його"],
+      ],
+    },
+  };
+  HELP.ua = HELP.uk;                    // the country code is a common mistake for the language
+  // Words of `text` in lines of at most `n` characters.
+  const wrap = (text, n) => text.split(" ").reduce((lines, w) => {
+    const last = lines[lines.length - 1];
+    if (last && (last + " " + w).length <= n) lines[lines.length - 1] = last + " " + w;
+    else lines.push(w.length > n ? fit(w, n) : w);
+    return lines;
+  }, []);
+
+  // Color themes of the spectrum analyzer, switched with T (Shift+T back). A theme
+  // colors each line of segments by its height f (0 at the bottom .. 1 at the top):
+  // either stepped bands or a gradient through the given colors, bottom to top. The
+  // window's gray background is the same in all of them, so no near-white tops.
+  const gradient = (...stops) => (f) => {
+    const rgb = stops.map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
+    const x = f * (rgb.length - 1), i = Math.min(Math.floor(x), rgb.length - 2), k = x - i;
+    return "#" + rgb[i].map((a, j) => Math.round(a + (rgb[i + 1][j] - a) * k)
+      .toString(16).padStart(2, "0")).join("");
+  };
+  const THEMES = [
+    // the LED meter of hi-fi decks and Winamp: green, yellow, red (CSS variables)
+    { id: "classic", name: "Classic", color: (f) => f > 0.8 ? "var(--tp-spec-high, #d22)"
+      : f > 0.5 ? "var(--tp-spec-mid, #cc0)" : "var(--tp-spec-low, #1a1)" },
+    { id: "fire", name: "Fire", color: gradient("#770000", "#cc0000", "#ff4400", "#ff9900", "#ffee00") },
+    { id: "ice", name: "Ice", color: gradient("#001155", "#0044aa", "#0088dd", "#00bbff", "#00eeee") },
+    { id: "rainbow", name: "Rainbow", color: (f) => `hsl(${Math.round(270 * (1 - f))} 90% 45%)` },
+    { id: "matrix", name: "Matrix", color: gradient("#003300", "#006600", "#00aa00", "#00dd00", "#22ff22") },
+    { id: "amber", name: "Amber", color: gradient("#663300", "#994400", "#cc7700", "#ffaa00", "#ffcc00") },
+    { id: "synthwave", name: "Synthwave", color: gradient("#330088", "#7700cc", "#cc00cc", "#ff0088", "#00dddd") },
+  ];
 
   // Look of the window. Every color and the font can be changed with CSS variables
   // (--tp-*) on :root or on .tp-overlay, without touching this file.
@@ -49,9 +139,6 @@
    segments come thick with thin gaps; the frame's "║" overlap and stay one line. */
 .tp-win .tp-specbox { display: inline-block; vertical-align: top; line-height: .42em;
   padding: .3em 0 .35em; }
-.tp-win .tp-g { color: var(--tp-spec-low, #1a1); }
-.tp-win .tp-y { color: var(--tp-spec-mid, #cc0); }
-.tp-win .tp-r { color: var(--tp-spec-high, #d22); }
 `;
 
   // Browser name for the "Decoder:" line.
@@ -120,6 +207,9 @@
     injectStyle(doc);
 
     const W = o.width;
+    const lang = (o.lang || doc.documentElement.lang || "en").toLowerCase().split("-")[0];
+    const help = HELP[lang] || HELP.en;
+    let helpShown = false;                 // the H key: the help instead of the key line
     const BROWSER = browserName();
     const audio = new Audio();
     audio.preload = "auto";
@@ -146,6 +236,9 @@
         : g);
     };
     const sep = () => `<span class="tp-fr">╟${"─".repeat(W)}╢</span>`;
+    // a separator with a label near its right end: ╟────── Fire ─╢
+    const sepLabel = (label) => `<span class="tp-fr">╟${"─".repeat(W - label.length - 3)} </span>` +
+      `<span class="tp-help">${esc(label)}</span><span class="tp-fr"> ─╢</span>`;
     const L = (s) => seg(s, "tp-lb"), V = (s) => seg(s, "tp-va");
     // Key help is plain text: keyboard only, the mouse does nothing here.
     // "tp-st": arrow glyphs may come from a fallback font; keep them out of the line height
@@ -208,9 +301,10 @@
         // the analyzer belongs to the playback section: no separator above it
         ...(spec.on && spec.shown ? [`<span class="tp-specbox">${Array.from({ length: spec.rows }, (_, r) =>
           `<span class="tp-fr">║</span> <span class="tp-spec">${spec.line(r)}</span> <span class="tp-fr">║</span>`).join("\n")}</span>`] : []),
-        sep(),
-        row(...keys(["Spc", "next"], ["P", "prev"], ["←→↑↓", "seek"], ["S", "pause"], ["+-", "vol"],
-                    ...(spec.on ? [["A", "spec"]] : []), ["Esc", "exit"])),
+        // for a second after T the separator under the analyzer names the new theme
+        spec.on && spec.shown && spec.named ? sepLabel(THEMES[spec.theme].name) : sep(),
+        ...(helpShown ? helpRows() : [row(...keys(["Spc", "next"], ["P", "prev"], ["←→↑↓", "seek"],
+          ["S", "pause"], ["+-", "vol"], ["H", "help"], ["Esc", "exit"]))]),
         `<span class="tp-fr">╚${"═".repeat(W)}╝</span>`,
       ].join("\n");
     }
@@ -226,17 +320,21 @@
     const spec = {
       on: o.spectrum && sameOrigin && !!(global.AudioContext || global.webkitAudioContext),
       shown: readCookie(o.spectrumCookie) !== "0",   // the A key; shown unless turned off
+      // the T key: the remembered theme, else the option's, else the first one
+      theme: [readCookie(o.spectrumThemeCookie), o.spectrumTheme]
+        .map((id) => THEMES.findIndex((t) => t.id === id)).find((i) => i >= 0) ?? 0,
       rows: o.spectrumRows,
       // a bar is 2 columns, bars 1 apart: as many as fit the inner width (23 at 70),
       // so the spectrum lines up with the text above it, edge to edge
       bands: Math.floor((W - 1) / 3),
+      named: 0,                             // timer while the theme's name is shown
       levels: null,                         // per band, 0..rows
       peaks: null, held: null,              // peak level per band, when it was reached
       ctx: null, an: null, data: null, raf: 0, last: 0,
       // one text line of the bars, row r from the top: colored "▂▂" segments
       line(r) {
         const t = this.rows - r;            // the level this line lights at
-        const cls = t > this.rows * 0.8 ? "tp-r" : t > this.rows * 0.5 ? "tp-y" : "tp-g";
+        const color = THEMES[this.theme].color(t / this.rows);
         const cells = [];
         for (let b = 0; b < this.bands; b++) {
           const level = this.levels ? Math.round(this.levels[b]) : 0;
@@ -246,7 +344,7 @@
         }
         // bars centered in the inner width: the spare columns split left and right
         const bars = cells.join(" "), left = Math.floor((W - 2 - bars.length) / 2);
-        return `<span class="${cls}">${(" ".repeat(left) + bars).padEnd(W - 2)}</span>`;
+        return `<span style="color:${color}">${(" ".repeat(left) + bars).padEnd(W - 2)}</span>`;
       },
     };
     // A: show / hide the analyzer, remembered in a cookie for a year. The window is
@@ -257,6 +355,17 @@
       writeCookie(o.spectrumCookie, spec.shown ? "1" : "0");
       render();
       if (spec.shown) specStart();
+    }
+    // T / Shift+T: the next / previous color theme, remembered in a cookie for a year.
+    function specTheme(back) {
+      if (!spec.on) return;
+      spec.theme = (spec.theme + (back ? THEMES.length - 1 : 1)) % THEMES.length;
+      writeCookie(o.spectrumThemeCookie, THEMES[spec.theme].id);
+      // the name for a second; another T starts the second again
+      global.clearTimeout(spec.named);
+      spec.named = global.setTimeout(() => { spec.named = 0; render(); }, 1000);
+      if (!spec.shown) specToggle();
+      else render();
     }
     function specStart() {
       if (!spec.on || !spec.shown) return;
@@ -337,7 +446,23 @@
       win.focus({ preventScroll: true });
       render();
     }
+    // The help: a title line, then each key and what it does, the description wrapped
+    // under itself. Without an analyzer its keys are left out.
+    function helpRows() {
+      const kw = 12, tw = W - 2 - kw;
+      const lines = [row(L(help.title))];
+      for (const [k, text] of help.rows) {
+        if (!spec.on && /^[AT]\b/.test(k)) continue;
+        wrap(text, tw).forEach((t, i) => lines.push(row(V((i ? "" : k).padEnd(kw)), seg(t, "tp-help"))));
+      }
+      return lines;
+    }
+    function helpToggle(on = !helpShown) {
+      helpShown = on;
+      render();
+    }
     function close() {
+      helpShown = false;
       audio.pause();
       overlay.hidden = true;
       if (cur >= 0) {
@@ -392,7 +517,9 @@
       if (overlay.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
       // e.code, so the keys work in any keyboard layout
       const act = {
-        Space: () => open(cur + 1), KeyP: () => open(cur - 1), KeyS: toggle, KeyA: specToggle, Escape: close, Backspace: close,
+        Space: () => open(cur + 1), KeyP: () => open(cur - 1), KeyS: toggle, KeyA: specToggle, KeyT: () => specTheme(e.shiftKey), KeyH: () => helpToggle(),
+        // with the help open, Esc / Backspace close the help first
+        Escape: () => (helpShown ? helpToggle(false) : close()), Backspace: () => (helpShown ? helpToggle(false) : close()),
         Comma: () => seekBy(-10), Period: () => seekBy(10), ArrowLeft: () => seekBy(-10), ArrowRight: () => seekBy(10),
         ArrowUp: () => seekBy(60), ArrowDown: () => seekBy(-60),   // bigger steps, as in mpv
         Equal: () => volBy(1 / 16), NumpadAdd: () => volBy(1 / 16), Minus: () => volBy(-1 / 16), NumpadSubtract: () => volBy(-1 / 16),
@@ -403,5 +530,5 @@
     return { open, close, audio };
   }
 
-  global.TextPlayer = { attach, version: "0.1.0" };
+  global.TextPlayer = { attach, themes: THEMES.map(({ id, name }) => ({ id, name })), version: VERSION };
 })(typeof window !== "undefined" ? window : globalThis);

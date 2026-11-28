@@ -538,8 +538,11 @@ impl Layout {
         }
         body.push_str("</ol>");
         body.push_str(&self.textplayer);
-        body.push_str(
-            r#"<script>TextPlayer.attach({ links: "ol.episodes a[data-file]" });</script>"#,
+        // the player's help in the page's language: the same code as <html lang>
+        let _ = write!(
+            body,
+            r#"<script>TextPlayer.attach({{ links: "ol.episodes a[data-file]", lang: "{}" }});</script>"#,
+            lang.code
         );
         body.push_str(&self.keynav);
         let _ = write!(
@@ -566,6 +569,30 @@ mod tests {
         };
         assert_eq!(link(70).unwrap(), "gopher://example.org/");
         assert_eq!(link(7070).unwrap(), "gopher://example.org:7070/");
+    }
+
+    #[test]
+    fn player_language_follows_the_page() {
+        let layout = Layout::new(&Server {
+            host: "example.org".into(),
+            port: 70,
+        })
+        .unwrap();
+        for l in &LANGS {
+            let page = layout.episode_page(l, "dir/x/", "x", "playlists/x.m3u8", &[]);
+            assert!(page.contains(&format!(r#"<html lang="{}">"#, l.code)));
+            assert!(
+                page.contains(&format!(r#"lang: "{}" }});"#, l.code)),
+                "{}",
+                l.code
+            );
+            // and the player has its help in that language (HELP in textplayer.js)
+            assert!(
+                TEXTPLAYER_JS.contains(&format!("\n    {}: {{\n      title:", l.code)),
+                "textplayer.js has no help in {}",
+                l.code
+            );
+        }
     }
 
     #[test]
