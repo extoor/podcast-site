@@ -43,6 +43,9 @@ spec:
     {{- with .Values.media.csi.mountOptions }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    # no file data on the node's disk: reads stream through RAM buffers only (last, so
+    # mountOptions can't turn the VFS cache on)
+    - vfs-cache-mode=off
   csi:
     driver: {{ .Values.media.csi.driver }}
     volumeHandle: {{ .Values.media.csi.volumeHandle }}

@@ -102,7 +102,9 @@
 
 Версия сайта — короткий коммит, из которого собран `sitegen` (`sitegen/build.rs`: `GIT_COMMIT`
 из CI через build-arg образа, локально — `git`, `-dirty` при правках): `rev <хеш>` внизу
-страниц (ссылка на коммит на GitHub) и строка «Версия:» в корневом меню Gopher.
+страниц (ссылка на коммит на GitHub) и строка «Версия:» в корневом меню Gopher. Под `rev` —
+«каталог собран», строкой ниже — `ДД.ММ.ГГГГ ЧЧ:ММ` (`generated_at`, подпись — `built` в `LANGS`): в HTML — UTC
+в `<time datetime>`, скрипт показывает время в часовом поясе браузера, без JS — `… UTC`.
 
 Сайт не для поисковиков: `sitegen` кладёт `robots.txt` (`Disallow: /`) в корень веба и Gopher,
 в каждой странице — `<meta name="robots" content="noindex, nofollow, noarchive, ...">`, Caddy
@@ -146,6 +148,10 @@
   удаление из истории не помогает, если коммит уже был запушен.
 - Перед коммитом смотреть `git diff --cached` на предмет секретов; в примерах — заглушки
   (`<token>`, `example.org`).
+- Устройство своей инфраструктуры тоже не описываем: никаких реальных IP-адресов и подсетей,
+  имён хостов, VLAN, интерфейсов, NAD, названий сетевых зон (DMZ и т. п.), имён S3-remote/бакетов —
+  ни в документации, ни в чарте, ни в комментариях. Только заглушки (`<pod-address>`, `192.0.2.x`,
+  `<nad>`) и нейтральные формулировки; настоящие значения — в `deploy/local/`.
 
 ## Соглашения
 
@@ -199,6 +205,10 @@
          PV `crypt:music/Podcasts`, ReadOnlyMany, конфиг — Secret с ключом `configData` (именно
          так, не `rclone.conf`): секции `[crypt]` и S3 под ней; fsGroup read-only тома kubelet
          драйверу не передаёт — чарт сам добавляет `allow-other`, `uid`/`gid` из podSecurityContext;
+         кэш только в памяти: чарт последней опцией ставит `vfs-cache-mode=off` (на диск ноды
+         rclone ничего не пишет, mountOptions это не перебивают);
+         у подов web и gopherd аннотация `checksum/storage` (хеш отрендеренного `storage.yaml`):
+         опции монтирования меняются — поды перекатываются сами (Helm и ArgoCD);
          `templates/checks.yaml` (lookup) при install/upgrade останавливает установку без Secret
          или без `configData` (в template/lint/ArgoCD проверка пропускается);
        - собранный сайт — PVC RWO, `site.storageClass` (по умолчанию `openebs-hostpath`) —
@@ -207,8 +217,8 @@
          middleware redirect-scheme из ns traefik; `websecure` — без middleware)
          + cert-manager Certificate (ClusterIssuer
          zerossl-production), Caddy внутри на 8080;
-       - Gopher — Multus macvlan со своим IP в DMZ: `gopher.network` (master — VLAN-интерфейс ноды,
-         интерфейс `dmz`) — чарт создаёт NetworkAttachmentDefinition и аннотацию пода; через
+       - Gopher — Multus macvlan со своим IP: `gopher.network` (master — интерфейс ноды,
+         интерфейс `net1`) — чарт создаёт NetworkAttachmentDefinition и аннотацию пода; через
          шлюз — маршруты `0.0.0.0/1` и `128.0.0.0/1`: `default-route` Multus с k3s/flannel не
          заменил маршрут по умолчанию на `eth0`, и ответы клиентам уходили в сеть кластера
          (проверено в кластере); gopherd слушает 70 без root через sysctl
@@ -217,6 +227,8 @@
        - домен — `fm.tuhu.io` (веб и Gopher). Реальные значения (IP пода и т. п.) — не в git:
          `deploy/local/` в `.gitignore`;
        - Pod Security «restricted»: runAsNonRoot, readOnlyRootFilesystem, drop ALL, seccomp.
+       - что проверять, если не работает (Helm, генератор, rclone, веб, сеть Gopher), — шпаргалка
+         `docs/troubleshooting.md` / `docs/troubleshooting.ru.md` (тоже двуязычная, правим обе).
 
 ## Открытые вопросы
 

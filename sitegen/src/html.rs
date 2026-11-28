@@ -169,6 +169,8 @@ pub struct Lang {
     keys: &'static str,
     gopher: &'static str,
     players: &'static str,
+    /// Before the catalog's build time in the footer.
+    built: &'static str,
 }
 
 /// English is the main language (the site root); Ukrainian and Russian under /ua, /ru.
@@ -187,6 +189,7 @@ pub const LANGS: [Lang; 3] = [
         keys: "[↑↓] select  [Enter] open / play  [Backspace] back",
         gopher: "also over Gopher",
         players: "M3U playlists open in VLC, foobar2000, mpv",
+        built: "catalog built",
     },
     Lang {
         code: "uk", // ISO 639-1 for Ukrainian (UA is the country)
@@ -201,6 +204,7 @@ pub const LANGS: [Lang; 3] = [
         keys: "[↑↓] вибір  [Enter] відкрити / грати  [Backspace] назад",
         gopher: "також через Gopher",
         players: "плейлисти M3U відкриваються у VLC, foobar2000, mpv",
+        built: "каталог зібрано",
     },
     Lang {
         code: "ru",
@@ -215,6 +219,7 @@ pub const LANGS: [Lang; 3] = [
         keys: "[↑↓] выбор  [Enter] открыть / играть  [Backspace] назад",
         gopher: "также по Gopher",
         players: "плейлисты M3U открываются в VLC, foobar2000, mpv",
+        built: "каталог собран",
     },
 ];
 
@@ -223,7 +228,8 @@ pub type Files = Vec<(String, String)>;
 
 /// Builds all pages in every language. `gopher` is shown in the footer.
 pub fn pages(catalog: &Catalog, gopher: &Server) -> Result<Files> {
-    let layout = Layout::new(gopher)?;
+    let mut layout = Layout::new(gopher)?;
+    layout.built = built_time(catalog.generated_at);
     let episodes: HashMap<&str, &Episode> = catalog
         .folders
         .iter()
@@ -303,6 +309,39 @@ fn list_row(out: &mut String, href: &str, name: &str, n: usize, playlist: &str) 
     );
 }
 
+/// The catalog's build time, right under the version: UTC in the page (shown as is
+/// without JS), turned into the browser's local time by a script, in the same
+/// `DD.MM.YYYY` as the episode dates. Nothing for an unknown time (0).
+fn built_time(unix: u64) -> String {
+    if unix == 0 {
+        return String::new();
+    }
+    let (y, m, d) = civil_date(unix / 86_400);
+    let (h, min) = (unix % 86_400 / 3600, unix % 3600 / 60);
+    format!(
+        "<time class=\"built\" datetime=\"{y:04}-{m:02}-{d:02}T{h:02}:{min:02}:00Z\">\
+         {d:02}.{m:02}.{y:04} {h:02}:{min:02} UTC</time>\
+         <script>document.querySelectorAll(\"time.built\").forEach(function(t){{\
+         var d=new Date(t.dateTime),p=function(n){{return(n<10?\"0\":\"\")+n}};\
+         if(!isNaN(d))t.textContent=p(d.getDate())+\".\"+p(d.getMonth()+1)+\".\"+d.getFullYear()+\
+         \" \"+p(d.getHours())+\":\"+p(d.getMinutes())}})</script>"
+    )
+}
+
+/// Days since 1970-01-01 → (year, month, day) in the proleptic Gregorian calendar
+/// (H. Hinnant's `civil_from_days`).
+fn civil_date(days: u64) -> (u64, u64, u64) {
+    let z = days + 719_468;
+    let era = z / 146_097;
+    let doe = z % 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (yoe + era * 400 + u64::from(m <= 2), m, d)
+}
+
 /// `rev <commit>` in the footer: a link to the commit when it is a clean one.
 fn version() -> String {
     match crate::commit_url(crate::COMMIT) {
@@ -317,6 +356,8 @@ struct Layout {
     gopher: String,
     textplayer: String,
     keynav: String,
+    /// When the catalog was built (`built_time`), after the version in the footer.
+    built: String,
 }
 
 impl Layout {
@@ -342,6 +383,7 @@ impl Layout {
             },
             textplayer: inline_script(TEXTPLAYER_JS)?,
             keynav: inline_script(KEYNAV_JS)?,
+            built: String::new(),
         })
     }
 
@@ -382,11 +424,20 @@ impl Layout {
         let remember = remember_lang(lang, url);
         // The nav row under the banner: "◄ all podcasts" (sub-pages) left, languages right.
         let body = body.replacen("<!--nav-->", &switch, 1);
+        // Rows with a right column: keys | rev, Gopher | "catalog built", players | the time.
+        let (label, time) = if self.built.is_empty() {
+            (String::new(), String::new())
+        } else {
+            (
+                format!("<span class=\"ver\">{}</span>", esc(lang.built)),
+                format!("<span class=\"ver\">{}</span>", self.built),
+            )
+        };
         let footer = format!(
             "<footer><div class=\"frow\"><span class=\"keys\">{}</span>\
              <span class=\"ver\">rev {}</span></div>\n\
-             ░▒▓ {}: {} ▓▒░<br>\n\
-             &gt; {}<span class=\"blink\">█</span></footer>",
+             <div class=\"frow\"><span>░▒▓ {}: {} ▓▒░</span>{label}</div>\n\
+             <div class=\"frow\"><span>&gt; {}<span class=\"blink\">█</span></span>{time}</div></footer>",
             esc(lang.keys),
             version(),
             esc(lang.gopher),
@@ -530,6 +581,7 @@ mod tests {
                 l.keys,
                 l.gopher,
                 l.players,
+                l.built,
             ] {
                 assert!(!t.trim().is_empty(), "{}", l.code);
             }
@@ -552,6 +604,20 @@ mod tests {
         );
         assert!(page.contains(r#"m[1]!=="ru""#));
         assert!(page.contains("document.cookie=k+"));
+    }
+
+    #[test]
+    fn build_time() {
+        assert_eq!(civil_date(0), (1970, 1, 1));
+        assert_eq!(civil_date(11_016), (2000, 2, 29));
+        assert_eq!(civil_date(20_785), (2026, 11, 28));
+        let t = built_time(1_795_865_100);
+        assert!(
+            t.contains(r#"datetime="2026-11-28T11:25:00Z">28.11.2026 11:25 UTC</time>"#),
+            "{t}"
+        );
+        assert!(t.ends_with("</script>") && t.matches("</script").count() == 1);
+        assert_eq!(built_time(0), "");
     }
 
     #[test]

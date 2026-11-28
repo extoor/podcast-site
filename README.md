@@ -119,7 +119,8 @@ The Helm chart `deploy/helm/podcast-site` deploys everything:
   `crypt:music/Podcasts`); its configuration (key `configData`, the whole `rclone.conf`) is
   a Secret made outside the chart (`media.csi.nodePublishSecretRef`), or use your own
   claim with `media.type: existingClaim`. `helm install`/`upgrade` stops if the Secret or its
-  `configData` key is missing;
+  `configData` key is missing. Nothing is cached on the node's disk: the chart pins
+  `vfs-cache-mode=off`, so rclone keeps only directory listings and read buffers in memory;
 - `gopherd` gets its own address through Multus (`gopher.network`) and listens on
   port 70 without root (the pod sysctl `net.ipv4.ip_unprivileged_port_start=0`); menus
   point to `gopher.host` (default: `domain`, the same name as the web);
@@ -145,13 +146,13 @@ which is in `.gitignore`. For example `deploy/local/values.yaml`:
 ```yaml
 domain: podcasts.example.org
 gopher:
-  network:                 # the pod's own address in the DMZ (Multus macvlan)
+  network:                 # the pod's own address (Multus macvlan)
     enabled: true
     master: eth0.100       # the node interface (here VLAN 100 on eth0)
     address: 192.0.2.41/24
     gateway: 192.0.2.1
 web:
-  trustedProxies: [10.42.0.0/16]   # pod CIDR of Traefik; default private_ranges
+  trustedProxies: [<traefik-pod-cidr>]   # default private_ranges
 ```
 
 All settings with comments are in `deploy/helm/podcast-site/values.yaml`.
@@ -226,6 +227,8 @@ your own patches.
 
 ### When something goes wrong
 
+A longer checklist (Helm, generator, rclone, web, Gopher network): [docs/troubleshooting.md](docs/troubleshooting.md).
+
 | Symptom | Cause and fix |
 |---|---|
 | `FailedMount … either configData or remoteType must be provided` | The Secret has another key (`--from-file=rclone.conf`). Recreate it with `--from-file=configData=…`, then delete the pods. |
@@ -247,7 +250,8 @@ GitHub Actions (`.github/workflows/`):
   only build them); a weekly run rebuilds them with the newest Caddy and base images.
   The commit goes in as `GIT_COMMIT` and is the site's version: `rev <short hash>` at the
   bottom of every page (a link to the commit) and in the Gopher root menu. A local build
-  takes it from git (`-dirty` with uncommitted changes).
+  takes it from git (`-dirty` with uncommitted changes). Under it is the time the catalog
+  was built (`DD.MM.YYYY HH:MM`), in the visitor's own time zone (UTC without JS).
 - Dependabot keeps the actions, crates and base images up to date.
 
 ## Security
