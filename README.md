@@ -94,7 +94,9 @@ docker buildx build --pull --platform linux/amd64,linux/arm64 -f docker/Dockerfi
 
 All images are rootless: they run as UID/GID 65532 (numeric, so Kubernetes' `runAsNonRoot`
 can verify it), need no capabilities and no writable root filesystem. The `web` image takes
-the newest Caddy 2.x at build time (`caddy:2-alpine` with `--pull`); rebuild it regularly.
+the newest Caddy 2.x at build time (`caddy:2-builder-alpine` and `caddy:2-alpine` with
+`--pull`), built with the [transform-encoder](https://github.com/caddyserver/transform-encoder)
+plugin for the access log; rebuild it regularly.
 
 The Rust binaries are cross-compiled on the build machine's own architecture into static
 musl executables (linked by `rust-lld` from the Rust toolchain; every dependency is pure
@@ -144,7 +146,8 @@ GitHub Actions (`.github/workflows/`):
   that allows only the pages' own inline code and Google Fonts, and has its admin API
   turned off. The visitor's address (`X-Real-IP`, `X-Forwarded-For`) is believed only from
   trusted proxies (`TRUSTED_PROXIES`, in the chart `web.trustedProxies`, default
-  `private_ranges`) and goes to the access log as `client_ip`.
+  `private_ranges`) and goes first in the access log line. The log is in the Combined Log
+  Format (as Apache and nginx write it); Kubernetes probes (`kube-probe/…`) are not logged.
 - Everything taken from tags and file names is escaped in HTML and cleaned of tabs
   and line breaks in Gopher menus.
 - No `unsafe` code; `cargo audit` and `cargo deny` run before every commit.

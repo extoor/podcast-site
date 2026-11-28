@@ -95,7 +95,7 @@ kubectl -n podcasts logs deploy/podcast-site-web | tail -3
   always replace (it did not with k3s/flannel). The cluster network stays on `eth0`. SNAT on the
   router works too. To look inside the distroless pod:
   `kubectl debug -it <pod> --image=nicolaka/netshoot --profile=netadmin -- ip route`.
-- The visitor's address reaches the access log (`client_ip`) only if Traefik sees it
+- The visitor's address reaches the access log (the first field) only if Traefik sees it
   (`externalTrafficPolicy: Local` on its Service, no SNAT before it) and its pods are in
   `web.trustedProxies`.
 
@@ -161,7 +161,8 @@ argocd app history podcast-site
 ```
 
 - ArgoCD notices a new commit in `main` within about 3 minutes; `--refresh` makes it look now.
-- The Helm hook `generator-init` runs as a PostSync hook: every sync rebuilds the site.
+- The `generator-init` Job runs as a Sync hook (not PostSync, which would wait for pods that
+  only get healthy once the site is built): every sync rebuilds the site.
 - The Secret check (`templates/checks.yaml`) needs the live cluster and is skipped in ArgoCD.
 - The pods roll by themselves when the media mount changes (`checksum/storage`), not when the
   catalog is rebuilt.

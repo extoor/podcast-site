@@ -96,6 +96,11 @@
    CSP разрешает только inline-скрипты/стили и шрифты Google; админ-API выключен.
    Реальный IP посетителя — из `X-Real-IP`/`X-Forwarded-For` только от `TRUSTED_PROXIES`
    (чарт: `web.trustedProxies`, по умолчанию `private_ranges`), в логе — `client_ip`.
+   Лог доступа — Combined Log Format через плагин `caddyserver/transform-encoder` (закреплён на
+   коммите в `docker/Dockerfile`, этап `caddy` — xcaddy; им же CI проверяет Caddyfile; в
+   dev-контейнере — `caddy add-package`, после apt-обновления Caddy повторить); пробы
+   Kubernetes (`User-Agent: kube-probe/*`) не логируются (`log_skip`). Свои сообщения Caddy
+   (старт, ошибки) — встроенный `format console` с `level_format upper` (без ANSI-цветов).
    Обязательно поддержка Range-запросов (перемотка в плеерах).
    Плейлисты `/playlists/*.m3u8` — с `Content-Disposition: attachment`: иначе Chrome и Safari
    открывают их встроенным HLS-плеером вместо скачивания (на страницах — атрибут `download`).
@@ -188,9 +193,11 @@
 5. [x] HTTPS через Caddy с Range-запросами: `caddy/Caddyfile` готов и проверен в dev (Range,
        attachment для плейлистов, CSP); в кластере TLS делают Traefik и cert-manager.
        Caddy всегда последней версии: в dev-контейнере — из официального apt-репозитория Caddy,
-       в образе `web` — `caddy:2-alpine` со сборкой `--pull` и регулярной пересборкой.
+       в образе `web` — `caddy:2-alpine` с нашим бинарником (xcaddy на `caddy:2-builder-alpine`,
+       плагин лога), сборка с `--pull` и регулярная пересборка.
 6. [x] Docker-образы (GitHub Actions + GHCR, см. выше): `docker/Dockerfile`, цели `generator` (`sitegen --scan`), `gopherd`, `web`
-       (Caddy + `caddy/Caddyfile`, без file capability — иначе не стартует при drop ALL);
+       (Caddy с плагином + `caddy/Caddyfile`; у нашего бинарника нет file capability, как у
+       официального, — иначе не стартует при drop ALL);
        multi-arch amd64 + arm64: Rust-этап на `$BUILDPLATFORM` кросс-компилирует статический
        musl через `rust-lld` (без Zig и C-тулчейна), рантайм `distroless/static:nonroot`.
        Все образы rootless: UID/GID 65532 числом (иначе runAsNonRoot в Kubernetes не проверит),
@@ -211,6 +218,9 @@
          rclone ничего не пишет, mountOptions это не перебивают);
          у подов web и gopherd аннотация `checksum/storage` (хеш отрендеренного `storage.yaml`):
          опции монтирования меняются — поды перекатываются сами (Helm и ArgoCD);
+         Job `generator-init` — хук Helm post-install/upgrade и хук ArgoCD `Sync` (не PostSync:
+         тот ждёт здоровья подов, а они здоровы только с собранным сайтом — на пустом томе
+         синхронизация зависала);
          `templates/checks.yaml` (lookup) при install/upgrade останавливает установку без Secret
          или без `configData` (в template/lint/ArgoCD проверка пропускается);
        - собранный сайт — PVC RWO, `site.storageClass` (по умолчанию `openebs-hostpath`) —

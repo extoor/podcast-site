@@ -144,7 +144,7 @@ kubectl -n podcasts logs deploy/podcast-site-web | tail -5
 - Сертификат не выпускается — почти всегда DNS или порт 80 не доходит до Traefik (HTTP-01).
 - На Range-запрос должен прийти `206 Partial Content` (иначе в плеерах не работает перемотка),
   у плейлиста — `Content-Disposition: attachment`.
-- В логе Caddy `client_ip` — адрес посетителя. Если там адрес Traefik или маршрутизатора:
+- Первое поле строки лога Caddy — адрес посетителя. Если там адрес Traefik или маршрутизатора:
   поды Traefik не входят в `web.trustedProxies`, либо Traefik сам не видит адрес
   (`externalTrafficPolicy: Local`, без SNAT перед ним).
 

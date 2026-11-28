@@ -94,7 +94,9 @@ docker buildx build --pull --platform linux/amd64,linux/arm64 -f docker/Dockerfi
 
 Все образы rootless: работают от UID/GID 65532 (числом — чтобы `runAsNonRoot` в Kubernetes
 мог это проверить), без capabilities и без записи в корневую ФС. Образ `web` берёт последний
-Caddy 2.x на момент сборки (`caddy:2-alpine` с `--pull`) — его нужно регулярно пересобирать.
+Caddy 2.x на момент сборки (`caddy:2-builder-alpine` и `caddy:2-alpine` с `--pull`), собранный
+с плагином [transform-encoder](https://github.com/caddyserver/transform-encoder) для лога
+доступа, — его нужно регулярно пересобирать.
 
 Бинарники Rust кросс-компилируются на родной архитектуре машины сборки в статические
 musl-файлы (линкует `rust-lld` из тулчейна Rust; все зависимости на чистом Rust) — без
@@ -142,7 +144,8 @@ GitHub Actions (`.github/workflows/`):
   разрешает лишь собственный встроенный код страниц и шрифты Google, и работает с
   выключенным админ-API. Адрес посетителя (`X-Real-IP`, `X-Forwarded-For`) принимается только
   от доверенных прокси (`TRUSTED_PROXIES`, в чарте `web.trustedProxies`, по умолчанию
-  `private_ranges`) и пишется в лог доступа как `client_ip`.
+  `private_ranges`) и стоит первым в строке лога доступа. Лог — в формате Combined (как у Apache
+  и nginx); пробы Kubernetes (`kube-probe/…`) в лог не пишутся.
 - Всё, что берётся из тегов и имён файлов, в HTML экранируется, а в меню Gopher
   очищается от табуляций и переводов строк.
 - Без `unsafe`; `cargo audit` и `cargo deny` — перед каждым коммитом.

@@ -94,7 +94,7 @@ kubectl -n podcasts logs deploy/podcast-site-web | tail -3
   на `eth0`, который `default-route` Multus заменяет не всегда (с k3s/flannel — нет). Сеть
   кластера остаётся на `eth0`. SNAT на маршрутизаторе тоже решает задачу. Заглянуть в
   distroless-под: `kubectl debug -it <под> --image=nicolaka/netshoot --profile=netadmin -- ip route`.
-- Адрес посетителя попадает в лог доступа (`client_ip`), только если его видит Traefik
+- Адрес посетителя попадает в лог доступа (первое поле), только если его видит Traefik
   (`externalTrafficPolicy: Local` у его Service, без SNAT перед ним), а поды Traefik входят в
   `web.trustedProxies`.
 
@@ -159,7 +159,8 @@ argocd app history podcast-site
 ```
 
 - Новый коммит в `main` ArgoCD замечает примерно за 3 минуты; `--refresh` — сразу.
-- Хук Helm `generator-init` работает как PostSync: каждая синхронизация пересобирает сайт.
+- Job `generator-init` — хук фазы Sync (не PostSync: тот ждал бы подов, которые здоровы только
+  с собранным сайтом): каждая синхронизация пересобирает сайт.
 - Проверка Secret (`templates/checks.yaml`) требует живого кластера и в ArgoCD пропускается.
 - Поды перекатываются сами при смене монтирования аудио (`checksum/storage`), но не при
   пересборке каталога.

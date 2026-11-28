@@ -53,10 +53,12 @@ jobs:
             # sitegen inlines them into <script>: a closing tag would end the script early
             if grep -qi '</script' "$f"; then echo "$f: closing script tag" >&2; exit 1; fi
           done
+      # the same Caddy as in the web image: the newest 2.x with the log plugin
       - name: Caddyfile is valid (newest Caddy)
         run: |
-          docker run --rm --pull always -v "$PWD/caddy:/etc/caddy:ro" docker.io/library/caddy:2-alpine \
-            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          docker buildx build --pull -f docker/Dockerfile --target caddy -t caddy-check --load .
+          docker run --rm -v "$PWD/caddy:/etc/caddy:ro" caddy-check \
+            /out/caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
   secrets:
     name: no secrets in git
