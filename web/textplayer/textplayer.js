@@ -32,6 +32,7 @@
     spectrumThemeCookie: "tp_spectrum_theme", // cookie that keeps the T key choice (theme id)
     engine: null,                        // { wasm, worklet }: URLs of the WebAssembly engine
     gapless: true,                       // with the engine: the next track follows without a gap
+    gaplessCookie: "tp_gapless",         // cookie that keeps the choice in the options (O key)
   };
 
   // The H key help, in the page's language. Each row: the keys, what they do (wrapped
@@ -48,6 +49,7 @@
         ["+ -", "volume up / down"],
         ["A", "show / hide the spectrum analyzer"],
         ["T  Shift+T", "next / previous color theme of the analyzer"],
+        ["O", "options: gapless playback, the analyzer and its theme; O or Esc closes them"],
         ["H", "this help; H or Esc closes it"],
         ["Esc  Bksp", "close the player"],
         ["Mouse", "click or drag the progress and volume bars; a click outside the window closes it"],
@@ -64,6 +66,7 @@
         ["+ -", "громче / тише"],
         ["A", "показать / спрятать анализатор спектра"],
         ["T  Shift+T", "следующая / предыдущая цветовая тема анализатора"],
+        ["O", "настройки: бесшовное воспроизведение, анализатор и его тема; закрыть — O или Esc"],
         ["H", "эта справка; закрыть — H или Esc"],
         ["Esc  Bksp", "закрыть плеер"],
         ["Мышь", "клик и перетаскивание по полосам прогресса и громкости; клик мимо окна закрывает его"],
@@ -80,6 +83,7 @@
         ["+ -", "гучніше / тихіше"],
         ["A", "показати / сховати аналізатор спектра"],
         ["T  Shift+T", "наступна / попередня кольорова тема аналізатора"],
+        ["O", "налаштування: безшовне відтворення, аналізатор і його тема; закрити — O або Esc"],
         ["H", "ця довідка; закрити — H або Esc"],
         ["Esc  Bksp", "закрити плеєр"],
         ["Миша", "клік і перетягування по смугах прогресу та гучності; клік поза вікном закриває його"],
@@ -87,6 +91,19 @@
     },
   };
   HELP.ua = HELP.uk;                    // the country code is a common mistake for the language
+  // The O key options, in the page's language.
+  const OPTIONS = {
+    en: { title: "Options", gapless: "Gapless playback", spectrum: "Spectrum analyzer", theme: "Analyzer theme",
+      on: "on", off: "off", shown: "shown", hidden: "hidden", na: "not available",
+      keys: "↑↓ select   ←→ Space change   O Esc close" },
+    ru: { title: "Настройки", gapless: "Бесшовное воспроизведение", spectrum: "Анализатор спектра", theme: "Тема анализатора",
+      on: "вкл", off: "выкл", shown: "показан", hidden: "скрыт", na: "недоступно",
+      keys: "↑↓ выбор   ←→ пробел изменить   O Esc закрыть" },
+    uk: { title: "Налаштування", gapless: "Безшовне відтворення", spectrum: "Аналізатор спектра", theme: "Тема аналізатора",
+      on: "увімк", off: "вимк", shown: "показано", hidden: "приховано", na: "недоступно",
+      keys: "↑↓ вибір   ←→ пробіл змінити   O Esc закрити" },
+  };
+  OPTIONS.ua = OPTIONS.uk;
   // Words of `text` in lines of at most `n` characters.
   const wrap = (text, n) => text.split(" ").reduce((lines, w) => {
     const last = lines[lines.length - 1];
@@ -209,6 +226,7 @@
   // very next sample. The object below stands in for the <audio> element: the same
   // properties, methods and events the player uses.
   const PACE = 120;                     // seconds of compressed audio kept ahead
+  const CHUNK = 512 * 1024;             // bytes per range request: about 20 s at 192 kbps
   function wasmAudio(cfg) {             // cfg: { wasm, worklet, gapless, next(), fail() }
     const ev = new EventTarget();
     const fire = (type) => ev.dispatchEvent(new Event(type));
@@ -260,33 +278,54 @@
       if (t.ctrl) t.ctrl.abort();
       post({ t: "drop", id: t.id });
     }
+    // Downloads `t` from byte `offset` in chunks: one short range request each, made only
+    // when the worklet runs low (PACE ahead). No connection is held open for minutes: a
+    // paced long download got cut somewhere on the way (a proxy, a port forward) and the
+    // player stalled. A failed request is retried with a growing delay while the track
+    // is still wanted.
     async function pump(t, offset) {
       const ctrl = t.ctrl = new AbortController();
-      try {
-        const res = await fetch(t.url, { signal: ctrl.signal, headers: offset ? { Range: `bytes=${offset}-` } : {} });
-        if (!res.ok) throw new Error(`${t.url}: ${res.status}`);
-        if (offset && res.status !== 206) t.base = 0;      // no range support: from the start
-        const range = /\/(\d+)$/.exec(res.headers.get("Content-Range") || "");
-        t.size = t.size || (range ? Number(range[1]) : Number(res.headers.get("Content-Length")) || 0);
-        const reader = res.body.getReader();
-        for (;;) {
-          while (ahead(t) > (t.bitrate ? PACE : 1) && !ctrl.signal.aborted) await tick();
-          const { done, value } = await reader.read();
-          if (done) break;
-          // transfer a buffer of exactly these bytes
-          const buf = value.byteOffset === 0 && value.byteLength === value.buffer.byteLength
-            ? value.buffer : value.slice().buffer;
-          t.received += value.byteLength;
-          t.pending += value.byteLength;
-          post({ t: "data", id: t.id, buf }, [buf]);
-          if (t === cur) fire("progress");
+      let pos = offset, tries = 0;
+      // hands bytes to the worklet; returns how many (the buffer is transferred: empty after)
+      const give = (buf) => {
+        const n = buf.byteLength;
+        pos += n;
+        t.received += n;
+        t.pending += n;
+        post({ t: "data", id: t.id, buf }, [buf]);
+        if (t === cur) fire("progress");
+        return n;
+      };
+      while (!ctrl.signal.aborted) {
+        while (ahead(t) > (t.bitrate ? PACE : 1) && !ctrl.signal.aborted) await tick();
+        if (ctrl.signal.aborted) return;
+        try {
+          const res = await fetch(t.url, { signal: ctrl.signal, headers: { Range: `bytes=${pos}-${pos + CHUNK - 1}` } });
+          if (res.status === 416) break;                  // asked past the end
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          if (res.status !== 206) {
+            // no range support: the whole file in one answer, usable only from the start
+            if (pos) throw new Error("the server ignores Range");
+            t.base = 0;
+            give(await res.arrayBuffer());
+            break;
+          }
+          const range = /\/(\d+)$/.exec(res.headers.get("Content-Range") || "");
+          if (range) t.size = Number(range[1]);
+          const n = give(await res.arrayBuffer());
+          tries = 0;
+          if (!n || (t.size && pos >= t.size)) break;
+        } catch (e) {
+          if (ctrl.signal.aborted) return;
+          global.console.warn(`textplayer: ${t.url} from byte ${pos}: ${e.message}; trying again`);
+          if (t === cur) fire("waiting");
+          await new Promise((r) => global.setTimeout(r, Math.min(15000, 1000 * 2 ** tries++)));
         }
-        t.done = true;
-        post({ t: "end", id: t.id });
-        if (t === cur) { fire("progress"); preload(); }
-      } catch (e) {
-        if (e.name !== "AbortError" && t === cur) fire("error");
       }
+      if (ctrl.signal.aborted) return;
+      t.done = true;
+      post({ t: "end", id: t.id });
+      if (t === cur) { fire("progress"); preload(); }
     }
     // gapless: once the current file is downloaded, fetch the next one ahead
     function preload() {
@@ -422,6 +461,7 @@
     const lang = (o.lang || doc.documentElement.lang || "en").toLowerCase().split("-")[0];
     const help = HELP[lang] || HELP.en;
     let helpShown = false;                 // the H key: the help instead of the key line
+    let optsShown = false, optsAt = 0;     // the O key: the options instead of it, the row picked
     const BROWSER = browserName();
     let cur = -1;
     // Audio from another origin (without CORS) can't be fetched, nor read by Web Audio.
@@ -434,7 +474,9 @@
     const canEngine = o.engine && o.engine.wasm && o.engine.worklet && sameOrigin
       && global.AudioWorkletNode && global.WebAssembly && links.every((a) => /\.mp3$/i.test(new URL(a.href, global.location.href).pathname));
     let audio = canEngine ? wasmAudio({
-      wasm: o.engine.wasm, worklet: o.engine.worklet, gapless: o.gapless,
+      // the visitor's choice from the options (cookie) over the page's default
+      wasm: o.engine.wasm, worklet: o.engine.worklet,
+      gapless: readCookie(o.gaplessCookie) ? readCookie(o.gaplessCookie) === "1" : o.gapless,
       next: () => (cur + 1 < links.length ? links[cur + 1].href : null),
       fail: () => {
         audio = new Audio();
@@ -466,9 +508,23 @@
         : g);
     };
     const sep = () => `<span class="tp-fr">╟${"─".repeat(W)}╢</span>`;
-    // a separator with a label near its right end: ╟────── Fire ─╢
-    const sepLabel = (label) => `<span class="tp-fr">╟${"─".repeat(W - label.length - 3)} </span>` +
-      `<span class="tp-help">${esc(label)}</span><span class="tp-fr"> ─╢</span>`;
+    // A separator with labels: `center` in the middle (the open panel's title), `right`
+    // near the right end (a theme's name): ╟──── Options ──────── Fire ─╢. Without
+    // room for both, the right one is left out.
+    const sepWith = (center, right) => {
+      const parts = [];
+      if (center) parts.push([Math.floor((W - center.length - 2) / 2), center]);
+      if (right) {
+        const at = W - right.length - 3;
+        if (!parts.length || at > parts[0][0] + parts[0][1].length + 2) parts.push([at, right]);
+      }
+      let out = `<span class="tp-fr">╟`, x = 0;
+      for (const [at, text] of parts) {
+        out += `${"─".repeat(at - x)} </span><span class="tp-help">${esc(text)}</span><span class="tp-fr"> `;
+        x = at + text.length + 2;
+      }
+      return `${out}${"─".repeat(W - x)}╢</span>`;
+    };
     const L = (s) => seg(s, "tp-lb"), V = (s) => seg(s, "tp-va");
     // Key help is plain text: keyboard only, the mouse does nothing here.
     // "tp-st": arrow glyphs may come from a fallback font; keep them out of the line height
@@ -532,10 +588,12 @@
         // the analyzer belongs to the playback section: no separator above it
         ...(spec.on && spec.shown ? [`<span class="tp-specbox">${Array.from({ length: spec.rows }, (_, r) =>
           `<span class="tp-fr">║</span> <span class="tp-spec">${spec.line(r)}</span> <span class="tp-fr">║</span>`).join("\n")}</span>`] : []),
-        // for a second after T the separator under the analyzer names the new theme
-        spec.on && spec.shown && spec.named ? sepLabel(THEMES[spec.theme].name) : sep(),
-        ...(helpShown ? helpRows() : [row(...keys(["Spc", "next"], ["P", "prev"], ["←→↑↓", "seek"],
-          ["S", "pause"], ["+-", "vol"], ["H", "help"], ["Esc", "exit"]))]),
+        // above the help or the options their title; for a second after T, the theme's name
+        sepWith(helpShown ? help.title : optsShown ? optsText.title : "",
+          spec.on && spec.shown && spec.named ? THEMES[spec.theme].name : ""),
+        // Esc is in the help: the line has no room left for it next to O
+        ...(helpShown ? helpRows() : optsShown ? optsRows() : [row(...keys(["Spc", "next"], ["P", "prev"],
+          ["←→↑↓", "seek"], ["S", "pause"], ["+-", "vol"], ["O", "opts"], ["H", "help"]))]),
         `<span class="tp-fr">╚${"═".repeat(W)}╝</span>`,
       ].join("\n");
     }
@@ -681,7 +739,7 @@
     // under itself. Without an analyzer its keys are left out.
     function helpRows() {
       const kw = 12, tw = W - 2 - kw;
-      const lines = [row(L(help.title))];
+      const lines = [];                                       // the title is in the separator
       for (const [k, text] of help.rows) {
         if (!spec.on && /^[AT]\b/.test(k)) continue;
         wrap(text, tw).forEach((t, i) => lines.push(row(V((i ? "" : k).padEnd(kw)), seg(t, "tp-help"))));
@@ -690,10 +748,59 @@
     }
     function helpToggle(on = !helpShown) {
       helpShown = on;
+      if (on) optsShown = false;
       render();
+    }
+    // The options: each with its current value; ←→ (or Space, Enter) change the one
+    // picked with ↑↓. Every change is kept in a cookie, like the A and T keys.
+    const optsText = OPTIONS[lang] || OPTIONS.en;
+    const optsList = () => [
+      { label: optsText.gapless, can: () => "gapless" in audio,
+        value: () => (audio.gapless ? `[■] ${optsText.on}` : `[ ] ${optsText.off}`),
+        change: () => {
+          audio.gapless = !audio.gapless;
+          writeCookie(o.gaplessCookie, audio.gapless ? "1" : "0");
+        } },
+      { label: optsText.spectrum, can: () => spec.on,
+        value: () => (spec.shown ? `[■] ${optsText.shown}` : `[ ] ${optsText.hidden}`),
+        change: () => specToggle() },
+      { label: optsText.theme, can: () => spec.on,
+        value: () => `‹ ${THEMES[spec.theme].name} ›`,
+        change: (back) => specTheme(back) },
+    ];
+    function optsRows() {
+      const list = optsList(), lw = Math.min(40, Math.max(...list.map((x) => x.label.length)));
+      const lines = [];
+      list.forEach((x, i) => {
+        // the picked row: a marker and the label highlighted; the value three columns on
+        const mark = i === optsAt ? "► " : "  ";
+        lines.push(row(seg(mark, "tp-va"), seg(fit(x.label, lw), i === optsAt ? "tp-ttl" : "tp-lb"),
+          seg(" ".repeat(lw - Math.min(lw, x.label.length) + 3)), V(x.can() ? x.value() : optsText.na)));
+      });
+      lines.push(row(seg("")), row(seg(optsText.keys, "tp-help")));   // the keys, a line apart
+      return lines;
+    }
+    function optsToggle(on = !optsShown) {
+      optsShown = on;
+      if (on) helpShown = false;
+      render();
+    }
+    // a key while the options are open: true if it was theirs
+    function optsKey(code, shift) {
+      const list = optsList(), x = list[optsAt];
+      if (code === "ArrowUp" || code === "ArrowDown") {
+        optsAt = (optsAt + (code === "ArrowUp" ? list.length - 1 : 1)) % list.length;
+      } else if (["ArrowLeft", "ArrowRight", "Space", "Enter", "NumpadEnter"].includes(code)) {
+        if (x.can()) x.change(code === "ArrowLeft" || shift);
+      } else {
+        return false;
+      }
+      render();
+      return true;
     }
     function close() {
       helpShown = false;
+      optsShown = false;
       audio.pause();
       overlay.hidden = true;
       if (cur >= 0) {
@@ -758,10 +865,12 @@
     doc.addEventListener("keydown", (e) => {
       if (overlay.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
       // e.code, so the keys work in any keyboard layout
+      if (optsShown && optsKey(e.code, e.shiftKey)) { e.preventDefault(); return; }
+      // Esc / Backspace close an open panel (help, options) first, then the player
+      const back = () => (helpShown ? helpToggle(false) : optsShown ? optsToggle(false) : close());
       const act = {
         Space: () => open(cur + 1), KeyP: () => open(cur - 1), KeyS: toggle, KeyA: specToggle, KeyT: () => specTheme(e.shiftKey), KeyH: () => helpToggle(),
-        // with the help open, Esc / Backspace close the help first
-        Escape: () => (helpShown ? helpToggle(false) : close()), Backspace: () => (helpShown ? helpToggle(false) : close()),
+        KeyO: () => optsToggle(), Escape: back, Backspace: back,
         Comma: () => seekBy(-10), Period: () => seekBy(10), ArrowLeft: () => seekBy(-10), ArrowRight: () => seekBy(10),
         ArrowUp: () => seekBy(60), ArrowDown: () => seekBy(-60),   // bigger steps, as in mpv
         Equal: () => volBy(1 / 16), NumpadAdd: () => volBy(1 / 16), Minus: () => volBy(-1 / 16), NumpadSubtract: () => volBy(-1 / 16),

@@ -20,7 +20,7 @@ One file, no dependencies; it adds its own styles.
 ╟──────────────────────────────────────────────────────────────────────╢
 ║ ► 00:02 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 59:59 ║
 ╟──────────────────────────────────────────────────────────────────────╢
-║ Spc:next | P:prev | ←→↑↓:seek | S:pause | +-:vol | H:help | Esc:exit ║
+║ Spc:next | P:prev | ←→↑↓:seek | S:pause | +-:vol | O:opts | H:help   ║
 ╚══════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -83,6 +83,7 @@ beforehand (in podcast-site this is done by `podscan`, module `mpeg.rs`).
 | `spectrumThemeCookie` | `"tp_spectrum_theme"` | cookie that keeps the `T` key choice for a year (the theme id) |
 | `engine`       | `null`                  | `{ wasm, worklet }`: URLs of `audiocore.wasm` and `worklet.js` — the WebAssembly engine (see below) |
 | `gapless`      | `true`                  | with the engine: the next track follows the current one without a gap |
+| `gaplessCookie` | `"tp_gapless"`         | cookie that keeps the choice made in the options (`O`) for a year; it wins over `gapless` |
 
 `attach` returns `{ open(index), close(), audio }`, or `null` if there are no links.
 `TextPlayer.themes` lists the analyzer themes as `{ id, name }`.
@@ -105,7 +106,8 @@ the analyzer names the new one (`─ Fire ─`). Each colors the segments by the
 ## WebAssembly engine
 
 With the `engine` option MP3 plays through Web Audio instead of an `<audio>` element. The
-page downloads the file itself (paced about two minutes ahead), and an AudioWorklet
+page downloads the file itself, in range requests of 512 KB as needed to stay about two
+minutes ahead (a failed request is retried), and an AudioWorklet
 (`worklet.js`) decodes it with [audiocore](../../audiocore) — Rust built to WebAssembly,
 bit-exact with minimp3. What it adds:
 
@@ -130,7 +132,9 @@ Content-Security-Policy needs `script-src 'self' 'wasm-unsafe-eval'` and `connec
   `S` — pause, `+` `-` — volume, `A` — show / hide the spectrum analyzer (the window
   resizes to fit, the choice is kept in a cookie), `T` / `Shift+T` — next / previous analyzer
   theme (kept in a cookie too; shows a hidden analyzer), `H` — a detailed help in place of
-  the key line (every key and the mouse, in the page's language), `Esc` or
+  the key line (every key and the mouse, in the page's language), `O` — the options in its
+  place: gapless playback, the analyzer and its theme (`↑↓` pick, `←→` / Space / Enter
+  change; each choice is kept in a cookie), `Esc` or
   Backspace — close (with the help open: close the help). Keys are matched by `e.code`, so they
   work in any keyboard layout.
 - Mouse: click or drag on the progress and volume bars; a click outside the window closes it.
